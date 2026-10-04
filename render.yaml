@@ -32,8 +32,6 @@ services:
     # Desplegar en cada commit a la rama principal.
     autoDeployTrigger: commit
 
-    envVars:
-      # `main.py` ya lee HOST y PORT del entorno; se declaran aquí para
-      # que quede explícito qué puerto escucha el servicio.
-      - key: PORT
-        value: 10000
+# No se declara la variable PORT a propósito: Render la inyecta sola y
+# `main.py` la lee del entorno. Fijarla a mano sería un paso que puede
+# desincronizarse del puerto que espera el proxy.
