@@ -1,0 +1,20 @@
+# -----------------------------------------------------------------------------
+# Datos locales: la base SQLite se regenera sola en cada arranque.
+# No tiene sentido versionarla.
+# -----------------------------------------------------------------------------
+datos/
+*.db
+*.sqlite
+*.sqlite3
+
+# Bytecode de Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

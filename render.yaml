@@ -1,0 +1,39 @@
+# =============================================================================
+# Mini ERP Contable — despliegue en Render
+#
+# Este archivo es un "Blueprint": Render lo lee del repositorio y crea el
+# servicio con esta configuración. Se usa desde el tablero con
+# New > Blueprint, apuntando a este repositorio.
+#
+# Lo único que hace falta es Python 3: el proyecto no tiene dependencias
+# externas, así que `pip install` no instala nada.
+# =============================================================================
+
+services:
+  - type: web
+    name: erp-contable
+    runtime: python
+
+    # El plan gratuito no pide tarjeta. Se apaga a los 15 minutos de
+    # inactividad y su disco es efímero: los datos vuelven a sembrarse
+    # solos en el arranque, gracias a `--auto-sembrar`.
+    plan: free
+
+    # Render no deja cambiar la región después de crear el servicio.
+    # Ohio (este de Estados Unidos) es el más cercano a Paraguay.
+    region: ohio
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 main.py --auto-sembrar
+
+    # Endpoint barato que devuelve 200 si el servidor responde.
+    healthCheckPath: /api/controles
+
+    # Desplegar en cada commit a la rama principal.
+    autoDeployTrigger: commit
+
+    envVars:
+      # `main.py` ya lee HOST y PORT del entorno; se declaran aquí para
+      # que quede explícito qué puerto escucha el servicio.
+      - key: PORT
+        value: 10000

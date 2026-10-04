@@ -1,0 +1,395 @@
+# Mini ERP Contable
+
+Sistema contable web que implementa la **Etapa 3** del enunciado: *plan de
+cuentas, operaciones, estructura del Libro Diario, estructura del Libro Mayor,
+balance y reglas de validación*.
+
+La idea central del sistema es una sola:
+
+```
+Plan de cuentas  ──►  Libro Diario  ──►  Libro Mayor  ──►  Balance
+   (sección 13)        (sección 14)     (sección 15)     (sección 16)
+   (se carga)          (se carga)       (se calcula)     (se calcula)
+```
+
+El Libro Mayor y el Balance **no tienen tablas propias**: son consultas sobre
+el Libro Diario. Por eso no se pueden cargar "a mano" y siempre reflejan
+exactamente lo que se contabilizó (controles 4 y 5 del enunciado).
+
+---
+
+## Cómo se usa
+
+No hay nada que instalar: el sistema usa solo la **biblioteca estándar de
+Python 3** y **SQLite**, que ya vienen con Python.
+
+```bash
+./INICIAR.sh                        # lo más simple: carga la demo y abre el navegador
+./INICIAR.sh 9000                   # en otro puerto
+./INICIAR.sh 8000 limpio            # vacía la base antes de cargar
+
+python3 main.py                    # arranca en http://127.0.0.1:8000
+python3 main.py --cargar-demo      # carga la empresa y las 15 operaciones, y sale
+python3 main.py --puerto 9000      # otro puerto
+python3 main.py --reiniciar        # vacía la base de datos
+python3 main.py --abrir            # abre el navegador automáticamente
+```
+
+Luego, en la web: **Panel → «Cargar datos de prueba»** y recorrer el menú
+`Plan de cuentas → Libro Diario → Libro Mayor → Balance`.
+
+### La interfaz
+
+Está hecha con **Tailwind CSS v4**, el mismo motor que usa 21st.dev, cargado
+desde `web/vendor/` para que funcione aunque no haya internet. No hace falta
+compilar nada: el `<style type="text/tailwindcss">` de `web/index.html`
+acepta `@theme` y `@apply`, así que se puede experimentar cambiando el tema o
+las clases de componente directamente ahí.
+
+El diseño sigue el estilo de **TailGrids UI v3**. Los tokens no están
+inventados: salen de la guía de estilo publicada por el proyecto
+(`https://tailgrids.com/design.md`), que es la fuente de valores real.
+
+| Concepto | Valor en TailGrids v3 | Dónde se usa acá |
+|----------|------------------------|------------------|
+| Primary | `#3758F9` | `--color-primary-600`: botones, ítems activos, anillo de foco |
+| Primary Dark | `#1B44C8` | `--color-primary-700`: estado hover de los botones |
+| Primary Light | `#EEF2FF` | `--color-primary-50`: realce de filas, ítems de navegación, badges |
+| Lienzo | `#FFFFFF` / `#F9FAFB` | tarjetas blancas sobre página `--color-surface-50` |
+| Escala de grises | gray-50 `#F9FAFB` … gray-900 `#111827` | alias `--color-surface-*` |
+| Negro de marca | `#090E34` | `--color-tinta`; es el que tiñe todas las sombras |
+| Semánticos | success `#22C55E`, warning `#F59E0B`, danger `#EF4444`, info `#0EA5E9` | badges, alertas y avisos flotantes |
+| Radio | 8px en botones, tarjetas y campos; 12px en diálogos | `--radius-card`, `--radius-field`, `--radius-modal` |
+| Sombras | sm en tarjetas, md en desplegables, lg en popovers, 2xl en modales | `--shadow-xs` … `--shadow-2xl` |
+| Tipografía | Inter 14px / 1.60 / peso 400 | cuerpo; se pide por CDN y cae a `system-ui` sin internet |
+| Foco | anillo de 3px de Primary al 20% | `:focus-visible` en la capa base |
+
+El resto de las decisiones —un solo botón primario lleno por vista, el
+acento izquierdo de 4px en las alertas, el encabezado de tabla en 12px
+mayúsculas sobre gris 50, `opacity: 40%` para deshabilitado— salen de la
+misma guía.
+
+Como en esta máquina no hay Node ni npm, los componentes de TailGrids
+—que son de React e instalan con `npx @tailgrids/cli`— no se pueden instalar, así
+que `web/ui.js` reproduce ese contrato a mano sobre Tailwind v4:
+
+| Componente | Props implementadas | Qué aporta |
+|------------|--------------------|------------|
+| **Button** | `variant` · `appearance` · `size` · `iconOnly` · `pending` · `disabled` · `readOnly` · `onPress` | `variant` y `appearance` se combinan libres (`danger` + `outline`), y `pending` atenúa el contenido marcando `aria-busy` **sin quitar el foco** |
+| **Badge** | `variant` · `appearance` (`light`/`solid`) · `iconName` | Estados de los asientos y de los controles |
+| **Field** | `label` · `description` · `errorMessage` · `isRequired` | Agrupa etiqueta, control, ayuda y error, con el `id` ya enlazado por `for` |
+| **Dialog** | `titulo` · `descripcion` · `campo` · `onConfirmar` | Modal con foco atrapado (Tab y Shift+Tab circulan dentro), cierre con `Esc`, scroll bloqueado y el foco devuelto al elemento que lo abrió. Reemplaza a `confirm()` y `prompt()`, que son bloqueantes y no se pueden leer con lector de pantalla |
+| **Toast** | `variant` · `title` · `description` · `detalles` | Avisos en una región `aria-live="polite"`: se anuncian sin robar el foco |
+| **Tabs** | navegación con teclado | Los dos menús (lateral y móvil) controlan los mismos paneles: flechas y `Home`/`End` recorren las pestañas, con *roving tabindex* para que el Tab no haga seis paradas |
+
+Los modales, los toasts y las confirmaciones antes usaban `alert()`, `confirm()`
+y `prompt()` del navegador: quedaban como diálogos del sistema, sin estilo y sin
+respetar el diseño de la aplicación.
+
+| Vista | Qué muestra |
+|-------|-------------|
+| **Panel** | Indicadores del período, estado de los 6 controles, datos de la empresa, carga de datos de prueba |
+| **Plan de cuentas** | Alta / edición / baja de cuentas, con validación del código y de la clasificación |
+| **Libro Diario** | Alta de asientos con partidas dinámicas, cuadre en vivo, ciclo de vida completo |
+| **Libro Mayor** | Movimiento de una cuenta o de todas, con saldo acumulado en cada línea |
+| **Balance** | Balance de comprobación con subtotales por clasificación y verificaciones |
+| **Controles** | Las 6 reglas de la sección 18 y la demostración de la trazabilidad |
+
+---
+
+## Estructura del proyecto
+
+```
+main.py                   punto de entrada (servidor web / consola)
+erp/
+  dinero.py               importes en centavos enteros + formato español
+  excepciones.py          errores que saben qué regla (C1..C6) se infringió
+  base_datos.py            esquema SQLite y conexión
+  validaciones.py          núcleo de reglas de negocio (controles 1 a 6)
+  plan_de_cuentas.py       Etapa 1 · Plan de cuentas
+  libro_diario.py          Etapa 1 · Libro Diario (única fuente de carga)
+  libro_mayor.py           Etapa 2 · Libro Mayor automático
+  balance.py               Etapa 3 · Balance de comprobación
+  datos_demo.py            empresa ficticia con las 15 operaciones
+  servidor.py              API JSON + servidor de archivos estáticos
+web/
+  index.html               interfaz, tokens @theme y clases de componente
+  ui.js                    componentes con la API de props de TailGrids
+  app.js                   lógica de la interfaz
+  vendor/                  Tailwind v4 vendorizado
+datos/                     aquí se crea erp.db al arrancar
+INICIAR.sh                arranque rápido (carga la demo y abre el navegador)
+render.yaml               definición del servicio para Render
+requirements.txt          vacío a propósito: no hay dependencias externas
+```
+
+## Publicarlo en Render
+
+El proyecto es Python 3 con SQLite, así que el hosting tiene que poder
+ejecutar un proceso Python. Render lo hace con un "Blueprint": la
+configuración completa está en `render.yaml`, versionada en el repo.
+
+### 1. Subir el código a GitHub
+
+Render despliega desde un repositorio git, así que primero hay que publicarlo:
+
+```bash
+git init
+git add .
+git commit -m "Mini ERP Contable"
+# Crear un repositorio vacío en github.com y luego:
+git remote add origin https://github.com/TU_USUARIO/erp-contable.git
+git branch -M main
+git push -u origin main
+```
+
+### 2. Crear el servicio
+
+En el panel de Render: **New → Blueprint**, apuntar al repositorio yRender
+lee `render.yaml`. La región es `ohio` y **no se puede cambiar después**;
+se eligió la más cercana a Paraguay.
+
+Queda un `startCommand` de una línea:
+
+```
+python3 main.py --auto-sembrar
+```
+
+`main.py` lee `HOST` y `PORT` del entorno, que es como Render indica que
+tiene que escuchar un servicio. `--auto-sembrar` carga los datos de prueba
+**solo si la base no tiene asientos**, así que nunca pisa lo que haya.
+
+### Qué esperar del plan gratuito
+
+`plan: free` no pide tarjeta, pero tiene tres límites que conviene conocer
+antes de mirar la URL:
+
+| Límite | Qué significa acá |
+|--------|-------------------|
+| Disco efímero | No admite disco persistente. La base se regenera en cada arranque. |
+| Se apaga a los 15 min | Y **al apagarse también se borra el disco**. Los asientos que cargues se pierden. |
+| 750 horas por mes | Suficiente para una demostración. |
+
+Por eso el arranque siembra los datos de prueba solo: la aplicación siempre
+está lista para usar, y simplemente empieza de cero. Para que los datos
+sobrevivan de verdad hace falta un plan pago con disco persistente, y en
+ese caso `--auto-sembrar` no toca nada porque detecta que ya hay asientos.
+
+### Decisiones de diseño
+
+**Importes en enteros de centavos.** Nunca se usa `float` para dinero. Todos
+los importes se guardan y se comparan como enteros (`18965000000` =
+G. 189.650.000,00) y solo se convierten a decimal al presentarlos. Así el
+control 1 nunca falla por error de redondeo binario.
+
+**Solo cuatro tablas:** `empresa`, `cuenta`, `asiento`, `partida`.
+
+**Ciclo de vida del asiento:** `BORRADOR → CONFIRMADO → ANULADO`.
+
+- Un asiento `BORRADOR` se puede editar y borrar.
+- `CONFIRMADO` **no se puede editar ni borrar**: se anula, y queda registrado
+  con su motivo para no perder la trazabilidad.
+- Solo los asientos `CONFIRMADO` suman en el Libro Mayor y en el Balance.
+
+**Dos tipos de problemas al guardar un asiento.** No todos los errores son
+iguales, y el sistema los distingue:
+
+| Tipo | Ejemplo | Qué hace el sistema |
+|------|---------|---------------------|
+| Estructural (no se puede guardar) | Una línea con Debe y Haber a la vez; una línea vacía; una cuenta inexistente | Rechaza la operación e indica la línea exacta |
+| De cuadre (se puede guardar) | Total Debe ≠ total Haber; cuenta inactiva; cuenta agrupadora | Guarda el asiento como `BORRADOR` y explica por qué no se contabilizó |
+
+**Naturaleza por defecto según la clasificación, pero ajustable.**
+Activo, Costos y Gastos son deudores; Pasivo, Patrimonio e Ingresos son
+acreedores. La cuenta `1.2.02 Depreciación Acumulada` rompe la regla a
+propósito: es un Activo pero se contabiliza con saldo acreedor, porque es una
+cuenta contrapasiva. Es el mejor ejemplo para mostrar que el ERP de verdad
+distingue las dos naturalezas.
+
+**Cuentas agrupadoras** (`recibe_movimiento = 0`, como `1 ACTIVO` o
+`2.1.01 Proveedores`… bueno, las de nivel 1 y 2) no admiten asientos: el
+movimiento se registra siempre en una cuenta de detalle.
+
+---
+
+## Los controles de la sección 18
+
+| Control | Regla | Cómo lo implementa el sistema |
+|---------|-------|-------------------------------|
+| **C1** | Cada asiento debe cuadrar: Debe = Haber | Se valida antes de contabilizar. Un descuadre nunca llega a `CONFIRMADO`. Además hay `CHECK` en la base de datos |
+| **C2** | Solo cuentas existentes, activas y de detalle | Validación al crear el asiento + clave foránea en SQLite |
+| **C3** | Las cuentas deben estar clasificadas correctamente | El código es jerárquico y su primer dígito tiene que coincidir con la clasificación; las cuentas de nivel 2 y 3 exigen que exista la cuenta padre |
+| **C4** | El Libro Mayor se genera del Libro Diario | `libro_mayor.py` solo hace `SELECT` sobre `partida JOIN asiento`; no hay tablas de mayor |
+| **C5** | El Balance se genera de lo contabilizado | Misma fuente, y `cruzar_con_libro_mayor()` compara cuenta por cuenta |
+| **C6** | Se deben diferenciar cuentas de naturaleza deudora y acreedora | Naturaleza validada contra la clasificación, con excepción para las contrapasivas |
+
+Los seis se pueden ver en vivo en la vista **Controles** de la aplicación.
+
+---
+
+## Evidencia de funcionamiento
+
+Empresa ficticia de la sección 19: **Distribuidora del Sur S.R.L.**,
+comercio mayorista de mercaderías, abril de 2026.
+
+### 1. Plan de cuentas (sección 13)
+
+21 cuentas: Activo (Caja, Banco, Clientes, Mercaderías, Muebles y Equipos,
+Depreciación Acumulada), Pasivo (Proveedores), Patrimonio Neto (Capital),
+Ingresos (Ventas), Costos (Costo de Mercaderías Vendidas) y Gastos
+(Administrativos, de Ventas).
+
+### 2. Libro Diario (sección 14) — las 15 operaciones
+
+| N. | Fecha | Concepto | Debe | Haber |
+|----|-------|----------|------|-------|
+| 1 | 2026-04-01 | Aporte inicial de los socios en cuenta bancaria | G. 50.000.000,00 | G. 50.000.000,00 |
+| 2 | 2026-04-02 | Aporte de fondos para la caja chica | G. 12.000.000,00 | G. 12.000.000,00 |
+| 3 | 2026-04-03 | Compra de mercaderías pagada al contado con efectivo | G. 20.000.000,00 | G. 20.000.000,00 |
+| 4 | 2026-04-05 | Compra de mercaderías a crédito | G. 15.000.000,00 | G. 15.000.000,00 |
+| 5 | 2026-04-06 | Venta de mercaderías pagada al contado con efectivo | G. 12.000.000,00 | G. 12.000.000,00 |
+| 6 | 2026-04-07 | Venta de mercaderías a crédito | G. 18.000.000,00 | G. 18.000.000,00 |
+| 7 | 2026-04-08 | Cobro a clientes | G. 9.000.000,00 | G. 9.000.000,00 |
+| 8 | 2026-04-10 | Pago a proveedores | G. 7.000.000,00 | G. 7.000.000,00 |
+| 9 | 2026-04-11 | Pago de gastos administrativos del período | G. 1.500.000,00 | G. 1.500.000,00 |
+| 10 | 2026-04-12 | Pago de gastos de ventas del período | G. 900.000,00 | G. 900.000,00 |
+| 11 | 2026-04-14 | Compra de muebles y equipos a crédito | G. 5.000.000,00 | G. 5.000.000,00 |
+| 12 | 2026-04-15 | Depreciación de muebles y equipos del período | G. 250.000,00 | G. 250.000,00 |
+| 13 | 2026-04-18 | Venta de mercaderías con depósito directo en el banco | G. 15.000.000,00 | G. 15.000.000,00 |
+| 14 | 2026-04-20 | Venta de mercaderías a crédito | G. 10.000.000,00 | G. 10.000.000,00 |
+| 15 | 2026-04-25 | Costo de mercaderías vendidas del período | G. 14.000.000,00 | G. 14.000.000,00 |
+| | | **TOTALES** | **G. 189.650.000,00** | **G. 189.650.000,00** |
+
+El control 1 se verifica sobre el total general:
+**G. 189.650.000,00 = G. 189.650.000,00**.
+
+### 3. Libro Mayor (sección 15) — cuenta 1.1.02 Banco
+
+El Libro Mayor no se carga: se calcula a partir del Diario. Banco aparece en
+cinco asientos y su saldo se acumula línea por línea.
+
+| Fecha | N. | Concepto | Debe | Haber | Saldo |
+|-------|---|----------|------|-------|-------|
+| 2026-04-01 | 1 | Aporte inicial de los socios en cuenta bancaria | G. 50.000.000,00 | G. 0,00 | G. 50.000.000,00 |
+| 2026-04-02 | 2 | Aporte de fondos para la caja chica | G. 0,00 | G. 12.000.000,00 | G. 38.000.000,00 |
+| 2026-04-08 | 7 | Cobro a clientes | G. 9.000.000,00 | G. 0,00 | G. 47.000.000,00 |
+| 2026-04-10 | 8 | Pago a proveedores | G. 7.000.000,00 | G. 0,00 | G. 54.000.000,00 |
+| 2026-04-18 | 13 | Venta de mercaderías con depósito directo en el banco | G. 15.000.000,00 | G. 0,00 | G. 69.000.000,00 |
+| | | **Totales** | **G. 81.000.000,00** | **G. 12.000.000,00** | **G. 69.000.000,00** |
+
+### 4. Balance de comprobación (sección 16)
+
+| Código | Cuenta | Débitos | Créditos | Saldo Deudor | Saldo Acreedor |
+|--------|--------|---------|----------|--------------|----------------|
+| 1.1.01 | Caja | G. 24.000.000,00 | G. 22.400.000,00 | G. 1.600.000,00 | G. 0,00 |
+| 1.1.02 | Banco | G. 81.000.000,00 | G. 12.000.000,00 | G. 69.000.000,00 | G. 0,00 |
+| 1.1.03 | Clientes | G. 28.000.000,00 | G. 9.000.000,00 | G. 19.000.000,00 | G. 0,00 |
+| 1.1.04 | Mercaderías | G. 35.000.000,00 | G. 14.000.000,00 | G. 21.000.000,00 | G. 0,00 |
+| 1.2.01 | Muebles y Equipos | G. 5.000.000,00 | G. 0,00 | G. 5.000.000,00 | G. 0,00 |
+| 1.2.02 | Depreciación Acumulada | G. 0,00 | G. 250.000,00 | G. 0,00 | G. 250.000,00 |
+| 2.1.01 | Proveedores | G. 0,00 | G. 27.000.000,00 | G. 0,00 | G. 27.000.000,00 |
+| 3.1 | Capital | G. 0,00 | G. 50.000.000,00 | G. 0,00 | G. 50.000.000,00 |
+| 4.1 | Ventas | G. 0,00 | G. 55.000.000,00 | G. 0,00 | G. 55.000.000,00 |
+| 5.1 | Costo de Mercaderías Vendidas | G. 14.000.000,00 | G. 0,00 | G. 14.000.000,00 | G. 0,00 |
+| 6.1 | Gastos Administrativos | G. 1.750.000,00 | G. 0,00 | G. 1.750.000,00 | G. 0,00 |
+| 6.2 | Gastos de Ventas | G. 900.000,00 | G. 0,00 | G. 900.000,00 | G. 0,00 |
+| | **TOTALES** | **G. 189.650.000,00** | **G. 189.650.000,00** | **G. 132.250.000,00** | **G. 132.250.000,00** |
+
+Las dos columnas de saldos dan el mismo total (**G. 132.250.000,00**), que es
+la prueba de que el Balance cuadra.
+
+### 5. Subtotales por clasificación (control 6)
+
+| Clasificación | Naturaleza | Débitos | Créditos | Saldo |
+|---------------|------------|---------|----------|-------|
+| Activo | Deudora | 173.000.000,00 | 57.650.000,00 | 115.350.000,00 |
+| Pasivo | Acreedora | 0,00 | 27.000.000,00 | 27.000.000,00 |
+| Patrimonio Neto | Acreedora | 0,00 | 50.000.000,00 | 50.000.000,00 |
+| Ingresos | Acreedora | 0,00 | 55.000.000,00 | 55.000.000,00 |
+| Costos | Deudora | 14.000.000,00 | 0,00 | 14.000.000,00 |
+| Gastos | Deudora | 2.650.000,00 | 0,00 | 2.650.000,00 |
+
+Nótese que el Activo acumula en una sola línea el saldo deudor de las cuentas
+de activo y el saldo acreedor de la Depreciación Acumulada (57.650.000 de
+créditos en la clasificación Activo son la contrapasiva).
+
+Como comprobación extra, aunque el balance de comprobación no la exige:
+el resultado del período es 55.000.000 − 14.000.000 − 2.650.000 =
+**G. 38.350.000,00**, y
+
+```
+Activo 115.350.000 = Pasivo 27.000.000 + Capital 50.000.000 + Resultado 38.350.000
+```
+
+### 6. Trazabilidad (controles 4 y 5)
+
+| Reporte | De dónde lee | Carga manual |
+|---------|--------------|--------------|
+| Libro Diario | tablas `asiento`, `partida`, `cuenta` | Sí (es la fuente) |
+| Libro Mayor | `partida JOIN asiento` con `estado = 'CONFIRMADO'` | Imposible |
+| Balance de comprobación | `partida JOIN asiento` con `estado = 'CONFIRMADO'` | Imposible |
+
+`cruzar_con_libro_mayor()` compara los saldos del Balance con los del Libro
+Mayor cuenta por cuenta y devuelve `coincide: True` con la lista de
+diferencias vacía. Esa es la demostración de los controles 4 y 5.
+
+---
+
+## La API
+
+La interfaz no tiene lógica contable propia: toda la contabilidad vive en los
+módulos de `erp/`. La API es JSON y traduce los errores del dominio a
+códigos HTTP con sentido.
+
+| Método | Ruta | Qué hace |
+|--------|------|----------|
+| GET / PUT | `/api/empresa` | Datos de la empresa |
+| GET | `/api/resumen` | Indicadores del panel |
+| GET / POST | `/api/cuentas` | Listar / crear cuentas |
+| GET / PUT / DELETE | `/api/cuentas/{código}` | Consultar / editar / eliminar |
+| POST | `/api/cuentas/{código}/estado` | Activar o desactivar |
+| GET | `/api/cuentas/{código}/mayor` | Libro Mayor de una cuenta |
+| GET / POST | `/api/asientos` | Listar / crear asientos |
+| GET / PUT / DELETE | `/api/asientos/{id}` | Consultar / editar / borrar |
+| POST | `/api/asientos/{id}/confirmar` | Contabilizar un borrador |
+| POST | `/api/asientos/{id}/anular` | Anular con motivo |
+| GET | `/api/libro-mayor` | Libro Mayor completo |
+| GET | `/api/balance` | Balance de comprobación |
+| GET | `/api/balance/cruce` | Cruce Balance ↔ Libro Mayor |
+| GET | `/api/controles` | Estado de los 6 controles |
+| POST | `/api/datos-demo` | Cargar las 15 operaciones |
+| POST | `/api/reiniciar` | Vaciar la base |
+
+Códigos de error: **422** regla de negocio infringida (el cuerpo trae
+`regla: "C1".."C6"` y el detalle), **404** no existe, **409** operación no
+permitida sobre ese estado, **400** otro error del dominio, **500** error
+interno.
+
+Ejemplo de un error del control 1:
+
+```console
+$ curl -s -X POST localhost:8000/api/asientos -H 'Content-Type: application/json' \
+    -d '{"fecha":"2026-05-01","concepto":"Descuadre","confirmar":true,
+         "partidas":[{"cuenta":"1.1.01","debe":5000,"haber":0},
+                     {"cuenta":"3.1","debe":0,"haber":4000}]}'
+```
+```json
+{
+  "regla": "C1",
+  "titulo_regla": "Control 1 - El asiento debe cuadrar (Debe = Haber)",
+  "error": "El asiento N.º 16 se guardó como BORRADOR y no pudo contabilizarse: ...",
+  "detalles": ["El asiento no cuadra: total Debe G. 50,00 vs total Haber G. 40,00. ..."]
+}
+```
+
+---
+
+## Notas
+
+- El servidor escucha solo en `127.0.0.1`: es una herramienta de estudio,
+  no un servicio expuesto a la red.
+- La base de datos es un archivo SQLite en `datos/erp.db`. Se puede borrar
+  y empezar de cero, o usar `--datos otra.db` para trabajar en paralelo.
+- Los estados contables de la sección 17 (Estado de Situación Patrimonial y
+  Estado de Resultados) quedan **fuera del alcance**: el enunciado pide las
+  etapas 1 a 3.

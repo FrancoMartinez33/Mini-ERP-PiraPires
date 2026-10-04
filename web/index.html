@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini ERP Contable</title>
+
+<!--
+  Inter es la tipografía que fija TailGrids para toda la interfaz. Se
+  pide por CDN; si no hay internet, la pila de respaldo declarada en
+  --font-sans (system-ui y compañía) toma el lugar y el resto del
+  diseño no se resiente. El resto del CSS es local: Tailwind compila en
+  el navegador desde vendor/.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+
+<!--
+  Tailwind CSS v4 (build "browser"), el mismo motor que usa 21st.dev.
+  Se carga desde vendor/ para que el sistema funcione sin internet.
+  Para experimentarlo en línea, reemplazá la ruta por:
+    https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4
+-->
+<script src="vendor/tailwindcss-browser.js"></script>
+
+<style type="text/tailwindcss">
+  /* =====================================================================
+     TOKENS DEL DESIGN SYSTEM
+     Equivalente conceptual de un tailwind.config.js: define las variables
+     que después se usan como clases (bg-primary-600, rounded-card, etc.).
+     Editá lo que quieras acá y se refleja en toda la aplicación.
+     ===================================================================== */
+  @theme {
+    /* --- primary: azul de acción -----------------------------------
+       TailGrids llama "Primary" al acento índigo-azul de la marca. Los
+       tres tonos que publica la guía son 600 (base), 700 (hover) y 50
+       (fondo de realce); el resto del ramp se interpola para que las
+       utilidades intermedias (anillos, bordes) no queden inventadas. */
+    --color-primary-50:  #eef2ff;  /* Primary Light */
+    --color-primary-100: #e0e7ff;
+    --color-primary-200: #c7d2fe;
+    --color-primary-300: #a5b4fc;
+    --color-primary-400: #818cf8;
+    --color-primary-500: #6372f9;
+    --color-primary-600: #3758f9;  /* Primary */
+    --color-primary-700: #1b44c8;  /* Primary Dark */
+    --color-primary-800: #1536a0;
+    --color-primary-900: #122b7d;
+    --color-primary-950: #0d1f57;
+
+    /* --- success: verde de confirmación --------------------------- */
+    --color-success-50:  #f0fdf4;  /* Success Light */
+    --color-success-100: #dcfce7;
+    --color-success-200: #bbf7d0;
+    --color-success-300: #86efac;
+    --color-success-400: #4ade80;
+    --color-success-500: #22c55e;  /* Success */
+    --color-success-600: #16a34a;  /* Success Dark */
+    --color-success-700: #15803d;
+    --color-success-800: #166534;
+
+    /* --- danger: rojo de error --------------------------------------
+       Solo semántico: nunca decorativo. */
+    --color-danger-50:  #fef2f2;  /* Danger Light */
+    --color-danger-100: #fee2e2;
+    --color-danger-200: #fecaca;
+    --color-danger-300: #fca5a5;
+    --color-danger-400: #f87171;
+    --color-danger-500: #ef4444;  /* Danger */
+    --color-danger-600: #dc2626;  /* Danger Dark */
+    --color-danger-700: #b91c1c;
+    --color-danger-800: #991b1b;
+
+    /* --- warning: ámbar de advertencia ------------------------------ */
+    --color-warning-50:  #fffbeb;  /* Warning Light */
+    --color-warning-100: #fef3c7;
+    --color-warning-200: #fde68a;
+    --color-warning-300: #fcd34d;
+    --color-warning-400: #fbbf24;
+    --color-warning-500: #f59e0b;  /* Warning */
+    --color-warning-600: #d97706;  /* Warning Dark */
+    --color-warning-700: #b45309;
+    --color-warning-800: #92400e;
+
+    /* --- info: celeste de aviso ------------------------------------- */
+    --color-info-50:  #f0f9ff;
+    --color-info-100: #e0f2fe;
+    --color-info-200: #bae6fd;
+    --color-info-500: #0ea5e9;  /* Info */
+    --color-info-600: #0284c7;  /* Info Dark */
+    --color-info-700: #0369a1;
+
+    /* --- surface: grises de la interfaz -----------------------------
+       TailGrids no inventa una escala propia: usa la de Tailwind (gray),
+       que va de #F9FAFB a #111827. "surface" es el alias que usa el HTML
+       para no depender de ese nombre. */
+    --color-surface-50:  #f9fafb;  /* fondo de página */
+    --color-surface-100: #f3f4f6;  /* campos, filas alternadas, sidebar */
+    --color-surface-200: #e5e7eb;  /* bordes de tarjeta y de divisor */
+    --color-surface-300: #d1d5db;  /* borde de campo, separadores fuertes */
+    --color-surface-400: #9ca3af;  /* placeholder, icono en reposo */
+    --color-surface-500: #6b7280;  /* texto secundario, encabezado de tabla */
+    --color-surface-600: #4b5563;
+    --color-surface-700: #374151;  /* texto de campo, subtítulos */
+    --color-surface-800: #1f2937;  /* texto de cuerpo */
+    --color-surface-900: #111827;  /* títulos, texto de máximo contraste */
+    --color-tinta:      #090e34;  /* negro de marca, con matizíndigo */
+
+    /* --- radios ------------------------------------------------------
+       TailGrids fija 8px como radio estándar (botones, tarjetas,
+       campos) y 12px para superficies elevadas y diálogos. La guía
+       prohíbe radios fuera de la escala: ni 5, ni 10, ni 15. */
+    --radius-card: 0.5rem;   /*  8px: tarjeta, botón, campo */
+    --radius-field: 0.5rem;  /*  8px */
+    --radius-modal: 0.75rem; /* 12px: diálogo, tarjeta elevada */
+    --radius-panel: 0.75rem;
+
+    /* --- sombras ----------------------------------------------------
+       Todas teñidas de #090E34 (el negro de marca) y no de negro puro:
+       es lo que da el aire "Crisp Open Canvas" en lugar de un gris
+       sucio. La elevación sube por pasos: tarjeta sm, desplegable md,
+       popover lg, modal 2xl. */
+    --shadow-xs:  0 1px 2px 0 rgb(9 14 52 / 0.06);
+    --shadow-sm:  0 1px 3px 0 rgb(9 14 52 / 0.10), 0 1px 2px 0 rgb(9 14 52 / 0.06);
+    --shadow-md:  0 4px 6px -1px rgb(9 14 52 / 0.10), 0 2px 4px -1px rgb(9 14 52 / 0.06);
+    --shadow-lg:  0 10px 15px -3px rgb(9 14 52 / 0.10), 0 4px 6px -2px rgb(9 14 52 / 0.05);
+    --shadow-xl:  0 20px 25px -5px rgb(9 14 52 / 0.10), 0 10px 10px -5px rgb(9 14 52 / 0.04);
+    --shadow-2xl: 0 25px 50px -12px rgb(9 14 52 / 0.25);
+
+    /* Alias que usa el HTML. Van escritos al pie de la letra y no como
+       `var(--shadow-sm)`: dentro de `@theme` una referencia a otra
+       variable no la registra Tailwind como usada, así que podría
+       podarse y dejar la sombra sin resolver. */
+    --shadow-panel: 0 1px 3px 0 rgb(9 14 52 / 0.10), 0 1px 2px 0 rgb(9 14 52 / 0.06);
+    --shadow-float: 0 25px 50px -12px rgb(9 14 52 / 0.25);
+
+    /* --- tipografía --------------------------------------------------
+       Inter es la única familia de UI; la monoespaciada es solo para
+       datos y códigos. Si no se puede cargar Inter (sin internet), cae
+       en la pila del sistema, que es la que la propia guía declara como
+       sustituto. */
+    --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+                 Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+
+  /* =====================================================================
+     BASE
+     ===================================================================== */
+  @layer base {
+    html { -webkit-text-size-adjust: 100%; }
+
+    /* Cuerpo: 14px / 1.60 / peso 400 en gray-800, que es la combinación
+       que la guía fija para todo el texto de la aplicación. */
+    body {
+      font-family: var(--font-sans);
+      font-feature-settings: "cv01", "cv03", "cv04";
+      font-size: 14px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Títulos: 600 con -0.01em. El tracking negativo solo se permite a
+       partir de 20px, nunca en el cuerpo del texto. */
+    h1, h2, h3, h4 {
+      color: var(--color-surface-900);
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    /* Etiquetas y rótulos sobre campos: 12px, 500, +0.05em. */
+    .rotulo {
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+    }
+
+    /* Foco visible y consistente en toda la app (lo que aporta React Aria
+       en los componentes de TailGrids, hecho a mano aquí): anillo de
+       3px de Primary al 20%, sin desplazar el diseño. */
+    :focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgb(55 88 249 / 0.20);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--color-surface-100); }
+    ::-webkit-scrollbar-thumb {
+      background: var(--color-surface-300);
+      border-radius: 6px;
+      border: 2px solid var(--color-surface-100);
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--color-surface-400); }
+  }
+
+  /* =====================================================================
+     COMPONENTES
+     Un `@apply` por propiedad; si un componente tiene partes dinámicas
+     (como los botones, que combinan variant + appearance + size), las
+     clases se componen desde ui.js.
+     ===================================================================== */
+  @layer components {
+
+    /* ---------------- Card ----------------
+       Superficie base: blanco, radio 8px, borde 1px gray-200, sombra
+       sm y padding de 24px. La sombra es baja a propósito: la
+       jerarquía se construye primero con pasos de color de fondo. */
+    .card {
+      @apply rounded-card border border-surface-200 bg-white shadow-panel;
+    }
+    .card-header {
+      @apply flex items-center gap-3 rounded-t-card border-b border-surface-200
+             px-6 py-4;
+    }
+    .card-title { @apply text-sm font-semibold text-surface-800; }
+    .card-subtitle { @apply text-xs text-surface-500; }
+    .card-body { @apply p-6; }
+    .card-footer {
+      @apply flex flex-wrap items-center gap-2 rounded-b-card border-t
+             border-surface-200 bg-surface-50 px-6 py-3.5;
+    }
+    /* Variante plana: sin sombra, fondo gray-50. Para paneles internos. */
+    .card-plana {
+      @apply rounded-card border border-surface-200 bg-surface-50;
+    }
+
+    /* ---------------- Button ---------------- */
+    /* Base común a todos los botones. Las variantes agregan color. */
+    .btn {
+      @apply inline-flex shrink-0 cursor-pointer items-center justify-center gap-2
+             rounded-field text-sm font-medium whitespace-nowrap select-none
+             transition duration-150;
+    }
+    /* La guía pide un estado deshabilitado visible: 40% de opacidad,
+       nunca ocultar la acción indisponible. */
+    .btn:disabled,
+    .btn[aria-disabled="true"] {
+      @apply pointer-events-none opacity-40;
+    }
+
+    /* El padding de referencia es 10px 24px; el botón fantasma usa
+       10px 16px por ser más discreto. */
+    .btn-xs { @apply h-7 gap-1 px-2.5 text-xs; }
+    .btn-sm { @apply h-9 gap-1.5 px-3.5; }
+    .btn-md { @apply h-10 px-6; }
+    .btn-lg { @apply h-12 gap-2.5 px-6 text-base; }
+    /* iconOnly: cuadrado, sin padding horizontal */
+    .btn-icon.btn-xs { @apply size-7 p-0; }
+    .btn-icon.btn-sm { @apply size-9 p-0; }
+    .btn-icon.btn-md { @apply size-10 p-0; }
+    .btn-icon.btn-lg { @apply size-12 p-0; }
+
+    /* El anillo de foco no se declara por variante: lo aporta el
+       `:focus-visible` de la capa base (3px de Primary al 20%), igual
+       que en los componentes reales de TailGrids. */
+
+    /* appearance = fill (relleno sólido) */
+    .btn-primary-fill   { @apply bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800; }
+    .btn-danger-fill    { @apply bg-danger-500  text-white hover:bg-danger-600  active:bg-danger-700; }
+    .btn-success-fill   { @apply bg-success-500 text-white hover:bg-success-600 active:bg-success-700; }
+    .btn-warning-fill   { @apply bg-warning-500 text-white hover:bg-warning-600 active:bg-warning-700; }
+    .btn-secondary-fill { @apply bg-surface-800 text-white hover:bg-surface-900; }
+    .btn-ghost-fill     { @apply bg-surface-100 text-surface-700 hover:bg-surface-200 active:bg-surface-300; }
+
+    /* appearance = outline (contorno) */
+    .btn-primary-outline   { @apply border-[1.5px] border-primary-600 bg-white text-primary-600 hover:bg-primary-50; }
+    .btn-danger-outline    { @apply border-[1.5px] border-danger-500 bg-white text-danger-500 hover:bg-danger-50; }
+    .btn-success-outline   { @apply border-[1.5px] border-success-500 bg-white text-success-600 hover:bg-success-50; }
+    .btn-warning-outline   { @apply border-[1.5px] border-warning-500 bg-white text-warning-600 hover:bg-warning-50; }
+    .btn-secondary-outline { @apply border-[1.5px] border-surface-300 bg-white text-surface-700 hover:bg-surface-50; }
+    .btn-ghost-outline     { @apply border border-transparent bg-transparent px-4 text-surface-700 hover:bg-surface-100; }
+
+    /* Estado pending: el contenido se atenúa y se muestra un spinner */
+    .btn-pending { @apply cursor-progress; }
+    .btn-pending > .btn-contenido { @apply opacity-60; }
+
+    /* ---------------- Badge ----------------
+       Píldora (radio full), padding 4px 10px, 12px, peso 500. */
+    .badge {
+      @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-1
+             text-xs font-medium whitespace-nowrap;
+    }
+    .badge-primary   { @apply border-primary-200   bg-primary-50   text-primary-700; }
+    .badge-success   { @apply border-success-200   bg-success-50   text-success-700; }
+    .badge-danger    { @apply border-danger-200    bg-danger-50    text-danger-700; }
+    .badge-warning   { @apply border-warning-200   bg-warning-50   text-warning-700; }
+    .badge-secondary { @apply border-surface-200   bg-surface-100   text-surface-600; }
+    .badge-solid-primary { @apply border-transparent bg-primary-600 text-white; }
+    .badge-solid-success { @apply border-transparent bg-success-500 text-white; }
+    .badge-solid-danger  { @apply border-transparent bg-danger-500  text-white; }
+
+    /* ---------------- Formularios ----------------
+       Campo: blanco, texto gray-700, borde gray-300, radio 8px, padding
+       10px 14px, placeholder gray-400. Al enfocar, el borde pasa a
+       Primary con el anillo de 3px al 12%. */
+    .label { @apply mb-1.5 block text-sm font-medium text-surface-700; }
+    .label-requerido { @apply text-danger-600; }
+
+    .input {
+      @apply block h-10 w-full rounded-field border border-surface-300
+             bg-white px-3.5 text-sm text-surface-700 transition
+             placeholder:text-surface-400
+             hover:border-surface-400
+             focus:border-primary-600 focus:ring-3 focus:ring-primary-600/12
+             focus:outline-none
+             disabled:cursor-not-allowed disabled:bg-surface-100
+             disabled:text-surface-500;
+    }
+    .input-error {
+      @apply border-danger-500 focus:border-danger-500 focus:ring-danger-500/12;
+    }
+    .input-sm { @apply h-9 px-2.5; }
+    .textarea {
+      @apply block w-full rounded-field border border-surface-300 bg-white px-3.5
+             py-2 text-sm text-surface-700 transition
+             placeholder:text-surface-400 hover:border-surface-400
+             focus:border-primary-600 focus:ring-3 focus:ring-primary-600/12
+             focus:outline-none;
+    }
+    .select {
+      @apply block h-10 w-full cursor-pointer appearance-none rounded-field
+             border border-surface-300 bg-white py-2 pr-9 pl-3.5 text-sm
+             text-surface-700 transition hover:border-surface-400
+             focus:border-primary-600 focus:ring-3 focus:ring-primary-600/12
+             focus:outline-none
+             disabled:cursor-not-allowed disabled:bg-surface-100;
+      /* chevron dibujado con un gradiente para no depender de un icono */
+      background-image: linear-gradient(45deg, transparent 50%, var(--color-surface-500) 50%),
+                        linear-gradient(135deg, var(--color-surface-500) 50%, transparent 50%);
+      background-position: calc(100% - 17px) calc(50% + 1px),
+                          calc(100% - 12px) calc(50% + 1px);
+      background-size: 5px 5px, 5px 5px;
+      background-repeat: no-repeat;
+    }
+    .checkbox {
+      @apply h-4 w-4 shrink-0 cursor-pointer rounded border-[1.5px]
+             border-surface-300 text-primary-600 transition focus:outline-none
+             focus-visible:ring-2 focus-visible:ring-primary-600/30;
+    }
+    .help-text { @apply mt-1 text-xs text-surface-500; }
+    .error-text { @apply mt-1 text-xs text-danger-600; }
+    .required-mark { @apply text-danger-600; }
+
+    /* ---------------- Tabla ----------------
+       Encabezado: fondo gray-50, texto gray-500, 12px en mayúsculas,
+       peso 600. Filas: fondo blanco, borde inferior gray-200, y al
+       pasar el mouse el fondo pasa a gray-50. */
+    .table-shell {
+      @apply overflow-x-auto rounded-b-card;
+    }
+    .table { @apply w-full border-collapse text-sm; }
+    .table thead th {
+      @apply sticky top-0 z-10 border-b border-surface-200 bg-surface-50
+             px-4 py-3 text-left text-xs font-semibold tracking-wide
+             text-surface-500 uppercase whitespace-nowrap;
+    }
+    .table tbody td {
+      @apply border-b border-surface-200 px-4 py-3 align-middle;
+    }
+    .table tbody tr { @apply transition hover:bg-primary-50/40; }
+    .table tfoot td {
+      @apply border-t-2 border-surface-300 bg-surface-50 px-4 py-3
+             font-semibold text-surface-800;
+    }
+    .num {
+      @apply text-right font-mono text-[13px] tabular-nums;
+    }
+
+    /* ---------------- Alert ----------------
+       Radio 8px, fondo en el tono claro del color semántico y una barra
+       de acento de 4px en el color fuerte del lado izquierdo. La barra
+       es un pseudo-elemento y no un `border-l-4`: dos utilidades de
+       ancho sobre el mismo borde no tienen un orden garantizado. */
+    .alert {
+      @apply relative flex items-start gap-3 rounded-field border p-4 pl-5 text-sm;
+    }
+    .alert::before {
+      content: "";
+      @apply absolute inset-y-[-1px] left-[-1px] w-1 rounded-l-field;
+    }
+    .alert-success { @apply border-success-200 bg-success-50 text-success-800; }
+    .alert-danger  { @apply border-danger-200  bg-danger-50  text-danger-700; }
+    .alert-warning { @apply border-warning-200 bg-warning-50 text-warning-800; }
+    .alert-info    { @apply border-info-200    bg-info-50    text-surface-800; }
+    .alert-success::before { @apply bg-success-500; }
+    .alert-danger::before  { @apply bg-danger-500; }
+    .alert-warning::before { @apply bg-warning-500; }
+    .alert-info::before    { @apply bg-info-500; }
+
+    /* ---------------- Tabs (menú lateral y menú móvil) ----------------
+       En navegación, el estado activo usa Primary Light como fondo, no
+       un relleno del color fuerte. */
+    .tab {
+      @apply relative flex w-full cursor-pointer items-center gap-3 rounded-field
+             px-3 py-2.5 text-sm font-medium text-surface-500 transition
+             hover:bg-surface-100 hover:text-surface-800;
+    }
+    .tab[aria-selected="true"] {
+      @apply bg-primary-50 text-primary-700;
+    }
+    .tab[aria-selected="true"]::before {
+      content: "";
+      @apply absolute inset-y-1.5 left-0 w-1 rounded-full bg-primary-600;
+    }
+    .tab-icon {
+      @apply grid size-6 shrink-0 place-items-center rounded-md bg-surface-100
+             text-[10px] font-bold text-surface-500;
+    }
+    .tab[aria-selected="true"] .tab-icon {
+      @apply bg-primary-600 text-white;
+    }
+    .tab-movil {
+      @apply cursor-pointer whitespace-nowrap rounded-full border
+             border-surface-200 bg-white px-3.5 py-1.5 text-xs font-medium
+             text-surface-600 transition hover:bg-surface-100;
+    }
+    .tab-movil[aria-selected="true"] {
+      @apply border-primary-600 bg-primary-600 text-white;
+    }
+
+    /* ---------------- Dialog ----------------
+       Panel blanco, radio 12px, sombra 2xl, sobre un velo
+       rgba(17,24,39,.4). Anchos de TailGrids: sm 400, md 560, lg 720. */
+    .dialog-overlay {
+      @apply fixed inset-0 z-50 flex items-center justify-center
+             bg-surface-900/40 p-4;
+      animation: aparecer 120ms ease-out;
+    }
+    .dialog {
+      @apply w-full max-w-lg rounded-modal border border-surface-200 bg-white
+             shadow-float;
+      animation: aparecer 150ms ease-out;
+    }
+    .dialog-header { @apply flex items-start gap-3 border-b border-surface-200 px-6 py-4; }
+    .dialog-body { @apply px-6 py-5; }
+    .dialog-footer {
+      @apply flex flex-wrap justify-end gap-2 border-t border-surface-200
+             bg-surface-50 px-6 py-3.5;
+    }
+    @keyframes aparecer {
+      from { opacity: 0; transform: translateY(6px) scale(0.98); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    /* ---------------- Toast ----------------
+       Flotante: blanco, borde gray-200, sombra lg, acento izquierdo de
+       4px con el color semántico. */
+    .toast-region {
+      @apply pointer-events-none fixed top-4 right-4 z-60 flex w-full max-w-sm
+             flex-col gap-2;
+    }
+    .toast {
+      @apply pointer-events-auto flex items-start gap-3 rounded-field border
+             border-surface-200 bg-white p-3.5 text-sm shadow-lg;
+      animation: aparecer 150ms ease-out;
+    }
+    .toast-success { @apply border-l-success-500; }
+    .toast-danger  { @apply border-l-danger-500; }
+    .toast-warning { @apply border-l-warning-500; }
+    .toast-info    { @apply border-l-info-500; }
+
+    /* ---------------- Misceláneos ---------------- */
+    .spinner {
+      @apply inline-block size-4 animate-spin rounded-full border-2
+             border-current border-t-transparent;
+    }
+    .separator { @apply h-px w-full bg-surface-200; }
+    .codigo {
+      @apply rounded bg-surface-100 px-1.5 py-0.5 font-mono text-xs
+             text-surface-700;
+    }
+    .scroll-area { @apply overflow-y-auto; }
+    .kpi {
+      @apply rounded-card border border-surface-200 bg-white p-6 shadow-panel;
+    }
+    .skeleton {
+      @apply animate-pulse rounded bg-surface-200;
+    }
+
+    /* ---------------- Utilidad propia ----------------
+       `oculto` reemplaza a `hidden` de Tailwind para que el estado de los
+       paneles quede explícito en el HTML y en el CSS, en un solo lugar. */
+    .oculto { display: none !important; }
+    .vista { animation: aparecer 140ms ease-out; }
+  }
+
+  /* =====================================================================
+     IMPRESIÓN DE LOS REPORTES
+     Al imprimir solo interested el reporte: sin menú, sin filtros.
+     ===================================================================== */
+  @media print {
+    .no-imprimir { display: none !important; }
+    body { background: #fff !important; }
+    .card, .kpi {
+      border: 1px solid #e5e7eb !important;
+      box-shadow: none !important;
+      break-inside: avoid;
+    }
+    thead { display: table-header-group; }
+    .table-shell { overflow: visible !important; }
+    @page { margin: 12mm; }
+  }
+</style>
+</head>
+
+<body class="min-h-screen bg-surface-50 text-surface-800 antialiased">
+
+<div class="flex min-h-screen">
+
+  <!-- ===================================================================
+       SIDEBAR
+       El menú es un patrón de tabs (role="tablist") sobre los paneles de
+       contenido: por eso se puede recorrer con las flechas del teclado.
+       =================================================================== -->
+  <aside class="no-imprimir sticky top-0 hidden h-screen w-64 shrink-0 flex-col
+                border-r border-surface-200 bg-white lg:flex">
+    <div class="flex items-center gap-3 border-b border-surface-200 px-5 py-5">
+      <div class="grid size-10 place-items-center rounded-xl bg-primary-600
+                  text-base font-bold text-white">₲</div>
+      <div class="min-w-0">
+        <p class="truncate text-sm font-semibold text-surface-800">Mini ERP</p>
+        <p class="truncate text-xs text-surface-500">Contable</p>
+      </div>
+    </div>
+
+    <nav id="menu" class="scroll-area flex-1 space-y-1 p-3"
+         role="tablist" aria-orientation="vertical" aria-label="Módulos del ERP">
+      <p class="px-3 pt-2 pb-1.5 text-[11px] font-semibold tracking-wider
+                text-surface-400 uppercase">Flujo contable</p>
+      <button class="tab" role="tab" id="tab-cuentas" data-vista="cuentas" aria-controls="vista-cuentas">
+        <span class="tab-icon">1</span> Plan de cuentas
+      </button>
+      <button class="tab" role="tab" id="tab-diario" data-vista="diario" aria-controls="vista-diario">
+        <span class="tab-icon">2</span> Libro Diario
+      </button>
+      <button class="tab" role="tab" id="tab-mayor" data-vista="mayor" aria-controls="vista-mayor">
+        <span class="tab-icon">3</span> Libro Mayor
+      </button>
+      <button class="tab" role="tab" id="tab-balance" data-vista="balance" aria-controls="vista-balance">
+        <span class="tab-icon">4</span> Balance
+      </button>
+
+      <p class="px-3 pt-4 pb-1.5 text-[11px] font-semibold tracking-wider
+                text-surface-400 uppercase">Sistema</p>
+      <button class="tab" role="tab" id="tab-panel" data-vista="panel" aria-controls="vista-panel">
+        <span class="tab-icon">★</span> Panel
+      </button>
+      <button class="tab" role="tab" id="tab-controles" data-vista="controles" aria-controls="vista-controles">
+        <span class="tab-icon">6</span> Controles y reglas
+      </button>
+    </nav>
+
+    <div class="border-t border-surface-200 p-4">
+      <p class="text-xs font-medium text-surface-700">Etapas 1 a 3</p>
+      <p class="mt-1 text-xs leading-relaxed text-surface-500">
+        Plan de cuentas · Libro Diario · Libro Mayor · Balance
+      </p>
+    </div>
+  </aside>
+
+  <!-- ===================================================================
+       CONTENIDO
+       =================================================================== -->
+  <div class="flex min-w-0 flex-1 flex-col">
+
+    <!-- Barra superior -->
+    <header class="no-imprimir sticky top-0 z-30 border-b border-surface-200
+                   bg-white/90 backdrop-blur">
+      <div class="flex flex-wrap items-center gap-3 px-4 py-3 lg:px-6">
+        <div class="flex items-center gap-2 lg:hidden">
+          <div class="grid size-8 place-items-center rounded-lg bg-primary-600
+                      font-bold text-white">₲</div>
+          <span class="text-sm font-semibold">Mini ERP</span>
+        </div>
+
+        <div class="min-w-0 flex-1">
+          <h1 id="empresa-nombre" class="truncate text-base font-semibold text-surface-800">
+            Mini ERP Contable
+          </h1>
+          <p id="empresa-detalle" class="truncate text-xs text-surface-500">
+            Cargando información de la empresa…
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="sr-only" for="filtro-desde">Desde</label>
+          <input id="filtro-desde" type="date" class="input input-sm w-36">
+          <label class="sr-only" for="filtro-hasta">Hasta</label>
+          <input id="filtro-hasta" type="date" class="input input-sm w-36">
+          <button id="btn-refrescar" class="btn btn-sm btn-secondary-fill">
+            Actualizar
+          </button>
+        </div>
+      </div>
+
+      <!-- Menú móvil: el mismo tablist, en horizontal -->
+      <div id="menu-movil" role="tablist" aria-label="Módulos del ERP"
+           class="scroll-area flex gap-1.5 overflow-x-auto border-t border-surface-100
+                  px-3 py-2 lg:hidden">
+        <button class="tab-movil" role="tab" id="tabm-panel" data-vista="panel" aria-controls="vista-panel">Panel</button>
+        <button class="tab-movil" role="tab" id="tabm-cuentas" data-vista="cuentas" aria-controls="vista-cuentas">Plan de cuentas</button>
+        <button class="tab-movil" role="tab" id="tabm-diario" data-vista="diario" aria-controls="vista-diario">Libro Diario</button>
+        <button class="tab-movil" role="tab" id="tabm-mayor" data-vista="mayor" aria-controls="vista-mayor">Libro Mayor</button>
+        <button class="tab-movil" role="tab" id="tabm-balance" data-vista="balance" aria-controls="vista-balance">Balance</button>
+        <button class="tab-movil" role="tab" id="tabm-controles" data-vista="controles" aria-controls="vista-controles">Controles</button>
+      </div>
+    </header>
+
+    <main class="flex-1 p-4 lg:p-6">
+
+      <!-- ===============================================================
+           PANEL
+           =============================================================== -->
+      <section id="vista-panel" role="tabpanel" aria-labelledby="tab-panel" class="vista">
+        <div id="panel-indicadores" class="grid gap-4 md:grid-cols-2 xl:grid-cols-4"></div>
+
+        <div class="mt-4 grid gap-4 lg:grid-cols-3">
+          <div class="card lg:col-span-2">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Estado de los controles del ERP</h2>
+                <p class="card-subtitle">Sección 18 del enunciado</p>
+              </div>
+            </div>
+            <div id="panel-controles" class="card-body space-y-1"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">Datos de la empresa</h2>
+            </div>
+            <form id="form-empresa" class="card-body space-y-3"></form>
+          </div>
+        </div>
+
+        <div class="card mt-4">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Operaciones de prueba</h2>
+              <p class="card-subtitle">Sección 19 · 15 operaciones mínimas</p>
+            </div>
+          </div>
+          <div class="card-body">
+            <p class="text-sm text-surface-600">
+              Se puede cargar el plan de cuentas del enunciado (sección 13) junto con las
+              <strong>15 operaciones económicas</strong> de una empresa ficticia, para ver de
+              una vez cómo el Libro Diario se convierte en Libro Mayor y Balance.
+            </p>
+            <div class="card-footer mt-4">
+              <button id="btn-cargar-demo" class="btn btn-md btn-primary-fill">
+                Cargar datos de prueba
+              </button>
+              <button id="btn-reiniciar" class="btn btn-md btn-danger-outline">
+                Vaciar base de datos
+              </button>
+              <span class="text-xs text-surface-500">
+                Vaciar elimina asientos y cuentas. Descargá el balance antes.
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===============================================================
+           PLAN DE CUENTAS  (sección 13)
+           =============================================================== -->
+      <section id="vista-cuentas" role="tabpanel" aria-labelledby="tab-cuentas" class="vista oculto">
+        <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+
+          <div class="card">
+            <div class="card-header flex-wrap gap-2">
+              <h2 class="card-title">Plan de cuentas</h2>
+              <div class="ml-auto flex flex-wrap items-center gap-2">
+                <label class="sr-only" for="cuenta-busqueda">Buscar cuenta</label>
+                <input id="cuenta-busqueda" type="search" placeholder="Buscar cuenta…"
+                       class="input input-sm w-40">
+                <label class="flex cursor-pointer items-center gap-1.5 text-xs text-surface-600">
+                  <input id="cuenta-inactivas" type="checkbox" class="checkbox" checked>
+                  Mostrar inactivas
+                </label>
+              </div>
+            </div>
+            <div class="table-shell">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th class="w-28">Código</th>
+                    <th>Nombre de la cuenta</th>
+                    <th class="w-48">Clasificación</th>
+                    <th class="w-32">Naturaleza</th>
+                    <th class="w-28">Estado</th>
+                    <th class="w-44 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="cuentas-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card h-fit">
+            <div class="card-header">
+              <h2 id="cuenta-form-titulo" class="card-title">Nueva cuenta</h2>
+            </div>
+            <form id="form-cuenta" class="card-body space-y-3"></form>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ===============================================================
+           LIBRO DIARIO  (sección 14)
+           =============================================================== -->
+      <section id="vista-diario" role="tabpanel" aria-labelledby="tab-diario" class="vista oculto">
+        <div class="card mb-4">
+          <div class="card-header flex-wrap gap-2">
+            <div>
+              <h2 id="diario-form-titulo" class="card-title">Nuevo asiento</h2>
+              <p class="card-subtitle">
+                Partida doble: cargá al menos dos líneas y el sistema exige que cuadre
+              </p>
+            </div>
+            <button id="btn-cancelar-asiento"
+                    class="btn btn-sm btn-secondary-outline ml-auto oculto">
+              Cancelar
+            </button>
+          </div>
+          <form id="form-asiento" class="card-body space-y-4"></form>
+        </div>
+
+        <div class="card">
+          <div class="card-header flex-wrap gap-2">
+            <h2 class="card-title">Asientos registrados</h2>
+            <div class="ml-auto flex flex-wrap items-center gap-2">
+              <label class="sr-only" for="diario-estado">Filtrar por estado</label>
+              <select id="diario-estado" class="select input-sm w-40">
+                <option value="TODOS">Todos los estados</option>
+                <option value="CONFIRMADO">Confirmados</option>
+                <option value="BORRADOR">Borradores</option>
+                <option value="ANULADO">Anulados</option>
+              </select>
+              <label class="sr-only" for="diario-busqueda">Buscar concepto</label>
+              <input id="diario-busqueda" type="search" placeholder="Buscar concepto…"
+                     class="input input-sm w-44">
+              <button id="btn-nuevo-asiento" class="btn btn-sm btn-primary-fill">
+                + Nuevo asiento
+              </button>
+            </div>
+          </div>
+          <div class="table-shell">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="w-16">N.º</th>
+                  <th class="w-28">Fecha</th>
+                  <th>Concepto</th>
+                  <th class="w-16 text-center">Líneas</th>
+                  <th class="w-36 text-right">Total Debe</th>
+                  <th class="w-36 text-right">Total Haber</th>
+                  <th class="w-36 text-center">Cuadre (C1)</th>
+                  <th class="w-32 text-center">Estado</th>
+                  <th class="w-56 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="diario-tbody"></tbody>
+            </table>
+          </div>
+          <div id="diario-resumen" class="card-footer text-xs text-surface-600"></div>
+        </div>
+
+        <div id="diario-detalle" class="mt-4 oculto"></div>
+      </section>
+
+      <!-- ===============================================================
+           LIBRO MAYOR  (sección 15)
+           =============================================================== -->
+      <section id="vista-mayor" role="tabpanel" aria-labelledby="tab-mayor" class="vista oculto">
+        <div class="card mb-4">
+          <div class="card-header flex-wrap gap-2">
+            <div>
+              <h2 class="card-title">Libro Mayor por cuenta</h2>
+              <p class="card-subtitle">
+                Se genera con los asientos confirmados del Libro Diario (control 4)
+              </p>
+            </div>
+            <div class="ml-auto flex flex-wrap items-center gap-2">
+              <label class="sr-only" for="mayor-cuenta">Cuenta</label>
+              <select id="mayor-cuenta" class="select input-sm w-72"></select>
+              <button id="btn-ver-mayor" class="btn btn-sm btn-primary-fill">
+                Ver movimiento
+              </button>
+              <button id="btn-mayor-todas" class="btn btn-sm btn-secondary-outline">
+                Todas las cuentas
+              </button>
+              <button data-accion="imprimir"
+                      class="btn btn-sm btn-ghost-outline">
+                Imprimir
+              </button>
+            </div>
+          </div>
+          <div id="mayor-cabecera" class="card-body pb-0"></div>
+        </div>
+
+        <div id="mayor-resultado"></div>
+      </section>
+
+      <!-- ===============================================================
+           BALANCE DE COMPROBACIÓN  (sección 16)
+           =============================================================== -->
+      <section id="vista-balance" role="tabpanel" aria-labelledby="tab-balance" class="vista oculto">
+        <div class="card mb-4">
+          <div class="card-header flex-wrap gap-2">
+            <h2 class="card-title">Balance de Comprobación</h2>
+            <div class="ml-auto flex flex-wrap items-center gap-2">
+              <label class="flex cursor-pointer items-center gap-1.5 text-xs text-surface-600">
+                <input id="balance-vacias" type="checkbox" class="checkbox">
+                Incluir cuentas sin movimiento
+              </label>
+              <label class="flex cursor-pointer items-center gap-1.5 text-xs text-surface-600">
+                <input id="balance-agrupado" type="checkbox" class="checkbox" checked>
+                Subtotales por clasificación
+              </label>
+              <button id="btn-ver-balance" class="btn btn-sm btn-primary-fill">
+                Generar balance
+              </button>
+              <button data-accion="imprimir"
+                      class="btn btn-sm btn-ghost-outline">
+                Imprimir
+              </button>
+            </div>
+          </div>
+          <div id="balance-cabecera" class="card-body pb-0"></div>
+        </div>
+
+        <div id="balance-resultado"></div>
+      </section>
+
+      <!-- ===============================================================
+           CONTROLES Y REGLAS  (sección 18)
+           =============================================================== -->
+      <section id="vista-controles" role="tabpanel" aria-labelledby="tab-controles" class="vista oculto">
+        <div class="card mb-4">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Reglas mínimas que controla el ERP</h2>
+              <p class="card-subtitle">Sección 18 · Control 1 a Control 6</p>
+            </div>
+          </div>
+          <div class="table-shell">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="w-24">Control</th>
+                  <th class="w-56">Regla</th>
+                  <th>Requisito del enunciado</th>
+                  <th>Cómo lo implementa el sistema</th>
+                  <th class="w-72">Estado en los datos actuales</th>
+                </tr>
+              </thead>
+              <tbody id="controles-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Trazabilidad de los reportes (controles 4 y 5)</h2>
+          </div>
+          <div class="table-shell">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th class="w-56">Reporte</th>
+                  <th class="w-64">De dónde lee los datos</th>
+                  <th>Cómo se obtiene</th>
+                  <th class="w-40 text-center">Carga manual</th>
+                </tr>
+              </thead>
+              <tbody id="trazabilidad-tbody"></tbody>
+            </table>
+          </div>
+          <div class="card-body border-t border-surface-200 text-sm text-surface-600">
+            El ERP tiene cuatro tablas: <code class="codigo">empresa</code>,
+            <code class="codigo">cuenta</code>, <code class="codigo">asiento</code> y
+            <code class="codigo">partida</code>. No existe ninguna tabla para el Libro Mayor ni
+            para el Balance: por eso es imposible cargarlos a mano, siempre se calculan a partir
+            de los asientos confirmados del Libro Diario.
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="no-imprimir border-t border-surface-200 px-6 py-3 text-center
+                   text-xs text-surface-400">
+      Mini ERP Contable · Etapas 1 a 3 · Plan de cuentas → Libro Diario → Libro Mayor → Balance
+    </footer>
+  </div>
+</div>
+
+<!-- Región de avisos. aria-live para que un lector de pantalla anuncie los
+     mensajes sin robar el foco (igual que el Toast de TailGrids). -->
+<div id="avisos" class="toast-region no-imprimir" role="region" aria-label="Avisos"
+     aria-live="polite"></div>
+
+<script src="ui.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
