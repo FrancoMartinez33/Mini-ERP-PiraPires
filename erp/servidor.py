@@ -31,11 +31,13 @@ from urllib.parse import parse_qs, unquote, urlparse
 from . import asistente
 from . import balance as modulo_balance
 from . import base_datos
+from . import iva
 from . import libro_diario
 from . import libro_mayor
 from . import plan_de_cuentas
 from . import validaciones
 from .dinero import formato_monto
+from .dinero import ErrorMonto
 from .excepciones import (
     ErrorERP,
     ErrorNoEncontrado,
@@ -90,6 +92,13 @@ RUTAS: list[tuple[str, re.Pattern, str]] = [
     # -- Controles (sección 18) ------------------------------------------
     ("GET",    r"^/api/controles$",                              "controles_listar"),
 
+    # -- IVA de Paraguay (Ley N.º 1259/97) --------------------------------
+    ("GET",    r"^/api/iva/alicuotas$",                          "iva_alicuotas"),
+    ("POST",   r"^/api/iva/calcular$",                           "iva_calcular"),
+    ("POST",   r"^/api/iva/asiento$",                            "iva_asiento"),
+    ("GET",    r"^/api/iva/resumen$",                         "iva_resumen"),
+    ("POST",   r"^/api/iva/liquidar$",                           "iva_liquidar"),
+
     # -- Asistente virtual (Groq con respaldo en Gemini) -----------------
     ("GET",    r"^/api/asistente/configuracion$",                "asistente_configuracion"),
     ("POST",   r"^/api/asistente$",                              "asistente_preguntar"),
@@ -123,6 +132,18 @@ class Manejador(BaseHTTPRequestHandler):
         """Traduce una excepción del dominio a una respuesta HTTP con sentido."""
         if isinstance(excepcion, ErrorValidacion):
             self._enviar_json(excepcion.como_diccionario(), 422)
+        elif isinstance(excepcion, ErrorMonto):
+            # Un importe mal escrito es un error de validación (422), no un
+            # fallo interno: sin esta rama el servidor respondería 500.
+            self._enviar_json(
+                {
+                    "error": str(excepcion),
+                    "regla": None,
+                    "titulo_regla": "Importe inválido",
+                    "detalles": [],
+                },
+                422,
+            )
         elif isinstance(excepcion, ErrorNoEncontrado):
             self._enviar_json({"error": str(excepcion), "detalles": []}, 404)
         elif isinstance(excepcion, ErrorOperacionInvalida):
@@ -528,6 +549,270 @@ class Manejador(BaseHTTPRequestHandler):
                 "cuadre_libro_diario": cuadre,
                 "cruce": cruce,
             }
+        )
+
+    # ------------------------------------------------------------------
+    # Manejadores: IVA de Paraguay
+    # ------------------------------------------------------------------
+
+    def _manejar_iva_alicuotas(self, _: dict) -> None:
+        """Catálogo de alícuotas vigentes, para poblar el selector."""
+        self._enviar_json(
+            {
+                "alicuotas": [
+                    {"valor": valor, "etiqueta": etiqueta}
+                    for valor, etiqueta in sorted(iva.ALICUOTAS.items(), reverse=True)
+                ],
+                "general": iva.ALICUOTA_GENERAL,
+                "reducida": iva.ALICUOTA_REDUCIDA,
+                "exenta": iva.ALICUOTA_EXENTA,
+                "marco_legal": "Ley N.º 1259/97 (Arts. 10, 11 y 15 y sgtes.)",
+                "cuentas": {
+                    "debito_fiscal": iva.CUENTA_DEBITO_FISCAL,
+                    "credito_fiscal": iva.CUENTA_CREDITO_FISCAL,
+                    "por_pagar": iva.CUENTA_IVA_POR_PAGAR,
+                    "a_recuperar": iva.CUENTA_IVA_A_RECUPERAR,
+                    "ventas_gravadas": iva.CUENTA_VENTAS_GRAVADAS,
+                    "ventas_exentas": iva.CUENTA_VENTAS_EXENTAS,
+                },
+            }
+        )
+
+    def _manejar_iva_calcular(self, _: dict) -> None:
+        """
+        Calcula el IVA de una operación sin contabilizarla.
+
+        El cuerpo admite ``base`` o ``total`` (excluyentes) y ``alicuota``.
+        Sirve para que la interfaz muestre el desglose antes de confirmar.
+        """
+        cuerpo = self._leer_cuerpo()
+        alicuota = cuerpo.get("alicuota", iva.ALICUOTA_GENERAL)
+        if cuerpo.get("total") is not None:
+            calculo = iva.discriminar(cuerpo["total"], alicuota)
+        else:
+            calculo = iva.liquidar_venta(base=cuerpo.get("base"), alicuota=alicuota)
+
+        calculo["base_formateado"] = formato_monto(calculo["base"])
+        calculo["iva_formateado"] = formato_monto(calculo["iva"])
+        calculo["total_formateado"] = formato_monto(calculo["total"])
+        self._enviar_json(calculo)
+
+    def _manejar_iva_asiento(self, _: dict) -> None:
+        """
+        Arma y —si se pide— contabiliza el asiento de una operación con IVA.
+
+        Cuerpo esperado::
+
+            {
+              "tipo": "venta" | "compra",
+              "fecha": "2026-04-20",
+              "concepto": "Venta de mercaderías",
+              "cuenta": "1.1.01",          # contrapartida (caja, banco, proveedor)
+              "cuenta_ingreso": "4.1.01",  # solo ventas (opcional)
+              "alicuota": 10,
+              "base": 1000000,             # o "total"
+              "confirmar": true
+            }
+        """
+        cuerpo = self._leer_cuerpo()
+        tipo = str(cuerpo.get("tipo") or "venta").strip().lower()
+        alicuota = cuerpo.get("alicuota", iva.ALICUOTA_GENERAL)
+        base = cuerpo.get("base")
+        total = cuerpo.get("total")
+
+        if tipo == "venta":
+            partidas = iva.partidas_venta(
+                cuenta_cobro=cuerpo.get("cuenta") or "",
+                base=base,
+                total=total,
+                alicuota=alicuota,
+                cuenta_ingreso=cuerpo.get("cuenta_ingreso"),
+                detalle=cuerpo.get("concepto"),
+            )
+        elif tipo == "compra":
+            partidas = iva.partidas_compra(
+                cuenta_pago=cuerpo.get("cuenta") or "",
+                cuenta_gasto_o_bien=cuerpo.get("cuenta_gasto") or "",
+                base=base,
+                total=total,
+                alicuota=alicuota,
+                detalle=cuerpo.get("concepto"),
+            )
+        else:
+            raise ErrorValidacion(
+                "El tipo de operación debe ser 'venta' o 'compra'.",
+                "IVA",
+            )
+
+        calculo = iva.liquidar_venta(
+            base=base, total=total, alicuota=alicuota
+        )
+
+        # Si no se pide contabilizar, se devuelve solo la previsualización
+        # del asiento (útil para el «vista previa» de la interfaz).
+        if not cuerpo.get("confirmar", True):
+            self._enviar_json(
+                {
+                    "contabilizado": False,
+                    "calculo": {**calculo, "base_formateado": formato_monto(calculo["base"]),
+                                "iva_formateado": formato_monto(calculo["iva"]),
+                                "total_formateado": formato_monto(calculo["total"])},
+                    "partidas": partidas,
+                }
+            )
+            return
+
+        asiento = libro_diario.crear_asiento(
+            fecha=cuerpo.get("fecha"),
+            concepto=cuerpo.get("concepto") or "Operación con IVA",
+            partidas=partidas,
+            confirmar=bool(cuerpo.get("confirmar_contable", True)),
+            observaciones=f"Generado por el módulo de IVA ({calculo.get('alicuota')}%).",
+            ruta=self.ruta_base,
+        )
+        self._enviar_json(
+            {
+                "contabilizado": True,
+                "calculo": {**calculo, "base_formateado": formato_monto(calculo["base"]),
+                            "iva_formateado": formato_monto(calculo["iva"]),
+                            "total_formateado": formato_monto(calculo["total"])},
+                "asiento": asiento,
+            },
+            201,
+        )
+
+    def _manejar_iva_resumen(self, _: dict) -> None:
+        """
+        Débito y Crédito Fiscal acumulados en un período (desde/hasta).
+
+        Es la antesala de la liquidación: suma los saldos de las dos
+        cuentas de IVA de los asientos CONFIRMADO del rango.
+        """
+        parametros = self._parametros()
+        desde = (parametros.get("desde") or [None])[0]
+        hasta = (parametros.get("hasta") or [None])[0]
+
+        with base_datos.conectar(self.ruta_base) as conexion:
+            filas = conexion.execute(
+                """
+                SELECT p.cuenta,
+                       COALESCE(SUM(p.debe), 0)  AS debe,
+                       COALESCE(SUM(p.haber), 0) AS haber
+                  FROM partida p
+                  JOIN asiento a ON a.id = p.asiento_id
+                 WHERE a.estado = 'CONFIRMADO'
+                   AND p.cuenta IN (?, ?)
+                   AND (? IS NULL OR a.fecha >= ?)
+                   AND (? IS NULL OR a.fecha <= ?)
+                 GROUP BY p.cuenta
+                """,
+                (
+                    iva.CUENTA_DEBITO_FISCAL,
+                    iva.CUENTA_CREDITO_FISCAL,
+                    desde, desde,
+                    hasta, hasta,
+                ),
+            ).fetchall()
+
+        movimientos = {fila["cuenta"]: dict(fila) for fila in filas}
+        debito_fila = movimientos.get(iva.CUENTA_DEBITO_FISCAL, {"debe": 0, "haber": 0})
+        credito_fila = movimientos.get(iva.CUENTA_CREDITO_FISCAL, {"debe": 0, "haber": 0})
+
+        # El Débito Fiscal es acreedor: su saldo es haber - debe.
+        debito = int(debito_fila["haber"]) - int(debito_fila["debe"])
+        # El Crédito Fiscal es deudor: su saldo es debe - haber.
+        credito = int(credito_fila["debe"]) - int(credito_fila["haber"])
+
+        liquidacion = iva.liquidar_periodo(
+            debito_fiscal=max(debito, 0), credito_fiscal=max(credito, 0)
+        )
+
+        self._enviar_json(
+            {
+                "periodo": {"desde": desde, "hasta": hasta},
+                "debito_fiscal": debito,
+                "credito_fiscal": credito,
+                "debito_formateado": formato_monto(debito),
+                "credito_formateado": formato_monto(credito),
+                "liquidacion": {
+                    **liquidacion,
+                    "monto_formateado": formato_monto(liquidacion["monto"]),
+                },
+            }
+        )
+
+    def _manejar_iva_liquidar(self, _: dict) -> None:
+        """
+        Contabiliza el asiento de liquidación del IVA del período.
+
+        Cierra las cuentas de Débito y Crédito Fiscal y deja el saldo en
+        «IVA por Pagar» o «IVA a Recuperar», según corresponda.
+        """
+        cuerpo = self._leer_cuerpo()
+        debito = cuerpo.get("debito_fiscal")
+        credito = cuerpo.get("credito_fiscal")
+
+        # Si no vienen los saldos, se calculan del período indicado.
+        if debito is None and credito is None:
+            with base_datos.conectar(self.ruta_base) as conexion:
+                filas = conexion.execute(
+                    """
+                    SELECT p.cuenta,
+                           COALESCE(SUM(p.debe), 0)  AS debe,
+                           COALESCE(SUM(p.haber), 0) AS haber
+                      FROM partida p
+                      JOIN asiento a ON a.id = p.asiento_id
+                     WHERE a.estado = 'CONFIRMADO'
+                       AND p.cuenta IN (?, ?)
+                       AND (? IS NULL OR a.fecha >= ?)
+                       AND (? IS NULL OR a.fecha <= ?)
+                     GROUP BY p.cuenta
+                    """,
+                    (
+                        iva.CUENTA_DEBITO_FISCAL,
+                        iva.CUENTA_CREDITO_FISCAL,
+                        cuerpo.get("desde"), cuerpo.get("desde"),
+                        cuerpo.get("hasta"), cuerpo.get("hasta"),
+                    ),
+                ).fetchall()
+            mov = {f["cuenta"]: dict(f) for f in filas}
+            df = mov.get(iva.CUENTA_DEBITO_FISCAL, {"debe": 0, "haber": 0})
+            cf = mov.get(iva.CUENTA_CREDITO_FISCAL, {"debe": 0, "haber": 0})
+            debito = int(df["haber"]) - int(df["debe"])
+            credito = int(cf["debe"]) - int(cf["haber"])
+
+        liquidacion = iva.liquidar_periodo(
+            debito_fiscal=int(debito or 0), credito_fiscal=int(credito or 0)
+        )
+
+        if liquidacion["situacion"] == "SIN_SALDO":
+            self._enviar_json(
+                {
+                    "contabilizado": False,
+                    "motivo": "El Débito y el Crédito Fiscal del período son iguales: no hay nada que liquidar.",
+                    "liquidacion": liquidacion,
+                }
+            )
+            return
+
+        asiento = libro_diario.crear_asiento(
+            fecha=cuerpo.get("fecha"),
+            concepto=cuerpo.get("concepto") or "Liquidación de IVA del período",
+            partidas=liquidacion["partidas"],
+            confirmar=bool(cuerpo.get("confirmar", True)),
+            observaciones="Liquidación de IVA (Ley N.º 1259/97).",
+            ruta=self.ruta_base,
+        )
+        self._enviar_json(
+            {
+                "contabilizado": True,
+                "liquidacion": {
+                    **liquidacion,
+                    "monto_formateado": formato_monto(liquidacion["monto"]),
+                },
+                "asiento": asiento,
+            },
+            201,
         )
 
     # ------------------------------------------------------------------

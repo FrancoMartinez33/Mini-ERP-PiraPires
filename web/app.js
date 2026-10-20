@@ -52,22 +52,26 @@ function leerMonto(valor) {
   texto = texto.replace(/[A-Za-z$€₲]/g, '');
   if (!texto) return 0;
 
-  // 2) Se decide cuál separador es decimal según cuál aparece más a la derecha.
+  // 2) Se decide qué separador es decimal según cuál aparece más a la derecha.
   const ultimoPunto = texto.lastIndexOf('.');
   const ultimaComa = texto.lastIndexOf(',');
   if (ultimoPunto >= 0 && ultimaComa >= 0) {
     texto = ultimoPunto > ultimaComa
       ? texto.replace(/,/g, '')                       // coma = miles
       : texto.replace(/\./g, '').replace(',', '.');   // punto = miles
-  } else if (ultimoPunto >= 0) {
-    // Un solo punto puede ser decimal ("10.5") o de miles ("1.500.000").
-    texto = (texto.match(/\./g) || []).length > 1
-      ? texto.replace(/\./g, '')
-      : texto.replace(/\./g, '.');
-  } else if (ultimaComa >= 0) {
-    texto = (texto.match(/,/g) || []).length > 1
-      ? texto.replace(/,/g, '')
-      : texto.replace(',', '.');
+  } else if (ultimoPunto >= 0 || ultimaComa >= 0) {
+    // Un único separador es ambiguo: puede ser decimal ("10.5", "0,50") o de
+    // miles ("500.000", "1.500"). Se resuelve con la convención de Paraguay y
+    // Argentina: si el separador está seguido de **exactamente tres dígitos**
+    // es de miles; en cualquier otro caso es decimal. Es lo que se ve en los
+    // importes del propio ERP ("G. 1.500.000,00").
+    const separador = ultimoPunto >= 0 ? '.' : ',';
+    const posicion = separador === '.' ? ultimoPunto : ultimaComa;
+    const digitosDetras = texto.length - posicion - 1;
+    const esMiles = digitosDetras === 3;
+    texto = esMiles
+      ? texto.replace(/[.,]/g, '')
+      : texto.replace(separador, '.');
   }
 
   texto = texto.replace(/[^0-9.\-]/g, '');
@@ -107,6 +111,7 @@ const estado = {
   cuentaEditando: null,
   conversacion: [],     // historial enviado al asistente {role, content}
   asistenteListo: false, // la configuración ya se consultó
+  ivaListo: false,      // el catálogo de alícuotas ya se consultó
 };
 
 // ============================================================================
@@ -178,8 +183,8 @@ function avisarError(error) {
 // Navegación entre vistas
 // ============================================================================
 
-const VISTAS = ['panel', 'cuentas', 'diario', 'mayor', 'balance', 'controles',
-                'asistente'];
+const VISTAS = ['panel', 'cuentas', 'diario', 'mayor', 'balance', 'iva',
+                'controles', 'asistente'];
 
 /** Carga los datos de la vista indicada la primera vez que se muestra. */
 function refrescarVista(vista) {
@@ -193,6 +198,7 @@ function refrescarVista(vista) {
   }
   if (vista === 'mayor') { cargarCuentas(); cargarMayor(); }
   if (vista === 'balance') cargarBalance();
+  if (vista === 'iva') { cargarCuentas(); cargarIVA(); }
   if (vista === 'controles') cargarControles();
   if (vista === 'asistente') cargarAsistente();
 }
@@ -240,6 +246,9 @@ async function iniciar() {
 
   await cargarEmpresa();
   await cargarCuentas();
+  // La burbuja de Pira Pires vive fuera de las pestañas: se conecta una sola
+  // vez acá, así está disponible desde cualquier vista.
+  await cargarPiraFlotante();
   listo = true;
   irA('panel');
 }
@@ -1525,6 +1534,284 @@ async function cargarControles() {
 }
 
 // ============================================================================
+// Vista: IVA de Paraguay (Ley N.º 1259/97)
+// ============================================================================
+
+/**
+ * Prepara la vista de IVA: catálogo de alícuotas, cuentas de los selects y
+ * el desglose inicial. Se ejecuta cada vez que se entra a la pestaña.
+ */
+async function cargarIVA() {
+  try {
+    if (!estado.ivaListo) {
+      const cfg = await api('/api/iva/alicuotas');
+      estado.iva = cfg;
+
+      // El selector de alícuotas se arma con el catálogo del servidor: así la
+      // interfaz y el backend nunca se separan (10 %, 5 % y exenta).
+      $('#iva-alicuota').innerHTML = cfg.alicuotas.map((a) => `
+        <option value="${a.valor}">${esc(a.etiqueta)}</option>`).join('');
+
+      $('#iva-estado').innerHTML = UI.badge('Ley N.º 1259/97', {
+        variant: 'primary', iconName: 'balanza',
+      });
+      estado.ivaListo = true;
+    }
+
+    // Las cuentas de cobro/pago y de gasto salen del plan cargado.
+    const contrapartida = $('#iva-cuenta');
+    if (!contrapartida.options || !contrapartida.options.length) {
+      contrapartida.innerHTML = opcionesCuentas('1.1.01');
+      $('#iva-cuenta-gasto').innerHTML = opcionesCuentas('1.1.04');
+    }
+
+    // El período de la liquidación arranca con el del ejercicio.
+    if (!$('#iva-desde').value) $('#iva-desde').value = estado.periodo.desde || '';
+    if (!$('#iva-hasta').value) $('#iva-hasta').value = estado.periodo.hasta || '';
+    if (!$('#iva-fecha').value) $('#iva-fecha').value = hoy();
+
+    conectarFormularioIVA();
+    actualizarDesgloseIVA();
+  } catch (error) {
+    avisarError(error);
+  }
+}
+
+/** Fecha de hoy en formato ISO (AAAA-MM-DD), para los campos de fecha. */
+function hoy() {
+  const d = new Date();
+  const dos = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`;
+}
+
+/** Conecta los eventos del formulario de IVA (una sola vez por carga). */
+function conectarFormularioIVA() {
+  const recalcular = () => actualizarDesgloseIVA();
+
+  $('#iva-importe').oninput = recalcular;
+  $('#iva-alicuota').onchange = recalcular;
+  $('#iva-modo').onchange = recalcular;
+  $('#iva-tipo').onchange = () => {
+    // La cuenta de gasto solo tiene sentido en las compras.
+    const esVenta = $('#iva-tipo').value === 'venta';
+    $('#iva-campo-gasto').classList.toggle('hidden', esVenta);
+    recalcular();
+  };
+  $('#iva-campo-gasto').classList.toggle('hidden', $('#iva-tipo').value === 'venta');
+
+  $('#btn-iva-contabilizar').onclick = contabilizarIVA;
+  $('#btn-iva-resumen').onclick = verResumenIVA;
+  $('#btn-iva-liquidar').onclick = liquidarIVA;
+}
+
+/** Muestra el desglose base + IVA + total mientras se escribe el importe. */
+async function actualizarDesgloseIVA() {
+  const caja = $('#iva-desglose');
+  const importe = leerMonto($('#iva-importe').value);
+  const alicuota = Number($('#iva-alicuota').value);
+  const porTotal = $('#iva-modo').value === 'total';
+
+  if (!importe) {
+    caja.innerHTML = `<p class="text-surface-500">
+      Escribí un importe para ver el desglose del impuesto.</p>`;
+    return;
+  }
+
+  try {
+    const cuerpo = porTotal
+      ? { total: importe, alicuota }
+      : { base: importe, alicuota };
+    const d = await api('/api/iva/calcular', { method: 'POST', body: cuerpo });
+
+    caja.innerHTML = `
+      <dl class="grid grid-cols-2 gap-y-1.5">
+        <dt class="text-surface-500">Base imponible</dt>
+        <dd class="num text-right font-medium">${esc(d.base_formateado)}</dd>
+        <dt class="text-surface-500">IVA ${d.alicuota}%</dt>
+        <dd class="num text-right font-medium text-primary-600">${esc(d.iva_formateado)}</dd>
+        <dt class="border-t border-surface-200 pt-1.5 font-semibold">Total</dt>
+        <dd class="num border-t border-surface-200 pt-1.5 text-right font-semibold">
+          ${esc(d.total_formateado)}
+        </dd>
+      </dl>
+      <p class="mt-2 text-xs text-surface-500">
+        Cuentas: ${esc(d.alicuota === 0
+          ? 'Ventas Exentas · no se genera línea de IVA'
+          : porTotal
+            ? 'el impuesto se discrimina del total (el precio ya lo incluye)'
+            : 'el impuesto se suma a la base')}
+      </p>`;
+  } catch (error) {
+    caja.innerHTML = `<p class="text-danger-600">${esc(error.mensaje)}</p>`;
+  }
+}
+
+/** Contabiliza el asiento de venta o compra con IVA. */
+async function contabilizarIVA() {
+  const tipo = $('#iva-tipo').value;
+  const importe = leerMonto($('#iva-importe').value);
+  if (!importe) {
+    avisar('Escribí el importe de la operación.', 'warning', 'Falta el importe');
+    return;
+  }
+
+  const porTotal = $('#iva-modo').value === 'total';
+  const cuerpo = {
+    tipo,
+    fecha: $('#iva-fecha').value,
+    concepto: $('#iva-concepto').value || (tipo === 'venta'
+      ? 'Venta con IVA' : 'Compra con IVA'),
+    cuenta: $('#iva-cuenta').value,
+    alicuota: Number($('#iva-alicuota').value),
+    ...(porTotal ? { total: importe } : { base: importe }),
+  };
+  if (tipo === 'compra') cuerpo.cuenta_gasto = $('#iva-cuenta-gasto').value;
+
+  const boton = $('#btn-iva-contabilizar');
+  boton.disabled = true;
+  boton.classList.add('btn-pending');
+
+  try {
+    const r = await api('/api/iva/asiento', { method: 'POST', body: cuerpo });
+    avisar(
+      `Asiento N.º ${r.asiento.numero} contabilizado por ${r.calculo.total_formateado}.`,
+      'success', 'Operación registrada',
+    );
+    // La tabla del Diario y el Balance quedan desactualizados: se recargan al
+    // entrar a esas vistas, y acá se limpia el formulario.
+    $('#iva-importe').value = '';
+    $('#iva-concepto').value = '';
+    $('#iva-resultado').innerHTML = pintarAsientoIVA(r);
+    actualizarDesgloseIVA();
+  } catch (error) {
+    avisarError(error);
+  } finally {
+    boton.disabled = false;
+    boton.classList.remove('btn-pending');
+  }
+}
+
+/** Tabla con las partidas del asiento recién generado. */
+function pintarAsientoIVA(r) {
+  const partidas = (r.asiento.partidas || []);
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h3 class="card-title">Asiento N.º ${r.asiento.numero} ·
+            ${fmtFecha(r.asiento.fecha)}</h3>
+          <p class="card-subtitle">${esc(r.asiento.concepto)}</p>
+        </div>
+        ${UI.badge(r.asiento.estado, {
+          variant: r.asiento.estado === 'CONFIRMADO' ? 'success' : 'secondary',
+          iconName: r.asiento.estado === 'CONFIRMADO' ? 'cheque' : 'lapiz',
+        })}
+      </div>
+      <div class="table-shell">
+        <table class="table">
+          <thead><tr>
+            <th class="w-24">Cuenta</th><th>Detalle</th>
+            <th class="w-32 text-right">Debe</th>
+            <th class="w-32 text-right">Haber</th>
+          </tr></thead>
+          <tbody>
+            ${partidas.map((p) => `
+              <tr>
+                <td class="font-mono text-xs text-surface-600">${esc(p.cuenta)}</td>
+                <td>${esc(p.detalle || '')}</td>
+                <td class="num">${p.debe ? fmt(p.debe) : ''}</td>
+                <td class="num">${p.haber ? fmt(p.haber) : ''}</td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot><tr>
+            <td colspan="2">TOTALES</td>
+            <td class="num">${fmt(r.asiento.total_debe)}</td>
+            <td class="num">${fmt(r.asiento.total_haber)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+}
+
+/** Consulta el Débito y el Crédito Fiscal acumulados en el período. */
+async function verResumenIVA() {
+  try {
+    const d = await api(`/api/iva/resumen${conRangoIVA()}`);
+    const liq = d.liquidacion;
+
+    const etiqueta = {
+      A_PAGAR: ['Saldo a pagar al fisco', 'warning'],
+      A_RECUPERAR: ['Saldo a favor del contribuyente', 'success'],
+      SIN_SALDO: ['El período cierra exacto', 'secondary'],
+    }[liq.situacion] || ['Sin datos', 'secondary'];
+
+    $('#iva-liquidacion').innerHTML = `
+      <div class="rounded-lg border border-surface-200 bg-surface-50 p-4">
+        <dl class="grid grid-cols-2 gap-y-1.5 text-sm">
+          <dt class="text-surface-500">Débito Fiscal (ventas)</dt>
+          <dd class="num text-right font-medium">${esc(d.debito_formateado)}</dd>
+          <dt class="text-surface-500">Crédito Fiscal (compras)</dt>
+          <dd class="num text-right font-medium">${esc(d.credito_formateado)}</dd>
+          <dt class="border-t border-surface-200 pt-1.5 font-semibold">
+            ${liq.situacion === 'A_RECUPERAR' ? 'A recuperar' : 'A pagar'}
+          </dt>
+          <dd class="num border-t border-surface-200 pt-1.5 text-right font-semibold">
+            ${esc(liq.monto_formateado)}
+          </dd>
+        </dl>
+        <div class="mt-3">
+          ${UI.badge(etiqueta[0], { variant: etiqueta[1] })}
+        </div>
+      </div>`;
+  } catch (error) {
+    avisarError(error);
+  }
+}
+
+/** Arma el ?desde=&hasta= con los campos de fecha de la liquidación. */
+function conRangoIVA() {
+  const params = new URLSearchParams();
+  if ($('#iva-desde').value) params.set('desde', $('#iva-desde').value);
+  if ($('#iva-hasta').value) params.set('hasta', $('#iva-hasta').value);
+  const texto = params.toString();
+  return texto ? `?${texto}` : '';
+}
+
+/** Contabiliza la liquidación del IVA del período. */
+async function liquidarIVA() {
+  const boton = $('#btn-iva-liquidar');
+  boton.disabled = true;
+  boton.classList.add('btn-pending');
+
+  try {
+    const r = await api('/api/iva/liquidar', {
+      method: 'POST',
+      body: {
+        desde: $('#iva-desde').value || undefined,
+        hasta: $('#iva-hasta').value || undefined,
+        fecha: hoy(),
+      },
+    });
+
+    if (!r.contabilizado) {
+      avisar(r.motivo, 'info', 'Nada que liquidar');
+    } else {
+      avisar(
+        `Asiento N.º ${r.asiento.numero}: ${r.liquidacion.monto_formateado} ` +
+        `(${r.liquidacion.cuenta_saldo}).`,
+        'success', 'Liquidación contabilizada',
+      );
+    }
+    await verResumenIVA();
+  } catch (error) {
+    avisarError(error);
+  } finally {
+    boton.disabled = false;
+    boton.classList.remove('btn-pending');
+  }
+}
+
+// ============================================================================
 // Vista: Asistente virtual (Groq con respaldo en Gemini)
 // ============================================================================
 
@@ -1610,9 +1897,149 @@ async function enviarPregunta() {
   }
 }
 
-/** Agrega una burbuja al historial y baja hasta el final. */
-function agregarBurbuja(rol, html, meta = null) {
+// ---------------------------------------------------------------------------
+// Pira Pires flotante
+// ---------------------------------------------------------------------------
+//
+// Es el mismo asistente que la pestaña, con dos diferencias: el avatar es la
+// foto del pez (boca cerrada cuando espera, boca abierta mientras escribe) y
+// se abre sobre la vista actual, sin cambiar de pestaña. La conversación es
+// **compartida**: `estado.conversacion` es la misma lista para los dos, así
+// que lo que se pregunta en la burbuja queda también en la pestaña.
+
+/** ¿Está abierto el panel del asistente flotante? */
+let piraAbierto = false;
+/** Evita mandar dos preguntas a la vez desde la burbuja. */
+let piraEnviando = false;
+
+/** Abre o cierra el panel flotante y ajusta el foco y el ícono. */
+function alternarPira(abrir) {
+  const panel = $('#pira-panel');
+  const burbuja = $('#pira-burbuja');
+  if (!panel || !burbuja) return;
+
+  piraAbierto = typeof abrir === 'boolean' ? abrir : !piraAbierto;
+
+  panel.classList.toggle('oculto', !piraAbierto);
+  burbuja.setAttribute('aria-expanded', String(piraAbierto));
+  // Al cerrar, el pez vuelve a la boca cerrada. Al abrir **no** se toca la
+  // foto: la elige quien llama (`enviarPreguntaPira` cuando piensa, y el
+  // propio botón cuando saluda), así el gesto de saludo no se pisa.
+  if (!piraAbierto) marcarPiraHablando(false);
+
+  if (piraAbierto) {
+    $('#pira-pregunta')?.focus();
+  } else {
+    burbuja.focus();
+  }
+}
+
+/**
+ * Cambia la foto de Pira Pires.
+ *
+ * `hablando = true`  -> boca abierta (está redactando o dictando).
+ * `hablando = false` -> boca cerrada (escucha o espera).
+ *
+ * Al tocar la burbuja flotante el pez abre la boca un instante, que es la
+ * señal visual de que el asistente "tomó la palabra".
+ */
+function marcarPiraHablando(hablando) {
+  const archivo = hablando
+    ? 'img/pescadobocaabierta-avatar.png'
+    : 'img/pescadobocacerrada-avatar.png';
+  const burbuja = $('#pira-burbuja-imagen');
+  const cabecera = $('#pira-cabecera-imagen');
+  if (burbuja && !burbuja.src.endsWith(archivo)) burbuja.src = archivo;
+  if (cabecera && !cabecera.src.endsWith(archivo)) cabecera.src = archivo;
+}
+
+async function cargarPiraFlotante() {
+  const burbuja = $('#pira-burbuja');
+  const panel = $('#pira-panel');
+  if (!burbuja || !panel) return;
+
+  burbuja.onclick = () => {
+    const abrir = !piraAbierto;
+    // Pequeño gesto: al abrir, el pez abre la boca y vuelve a cerrarla,
+    // como si terminara de decir "acá estoy".
+    if (abrir) {
+      marcarPiraHablando(true);
+      setTimeout(() => marcarPiraHablando(false), 450);
+    }
+    alternarPira(abrir);
+  };
+
+  $('#pira-cerrar').onclick = () => alternarPira(false);
+
+  // Escape cierra el panel, igual que un diálogo.
+  document.addEventListener('keydown', (evento) => {
+    if (evento.key === 'Escape' && piraAbierto) alternarPira(false);
+  });
+
+  $('#pira-formulario').onsubmit = (evento) => {
+    evento.preventDefault();
+    enviarPreguntaPira();
+  };
+}
+
+async function enviarPreguntaPira() {
+  const campo = $('#pira-pregunta');
+  const boton = $('#pira-enviar');
+  const texto = (campo.value || '').trim();
+  if (!texto || piraEnviando) return;
+
+  piraEnviando = true;
+  boton.classList.add('btn-pending');
+  boton.disabled = true;
+
+  const historial = $('#pira-historial');
+  const opciones = { contenedor: historial, flotante: true };
+
+  agregarBurbuja('user', markdownBasico(texto), null, opciones);
+  campo.value = '';
+  // Mientras piensa, el pez abre la boca: es el indicador de actividad.
+  marcarPiraHablando(true);
+  const esperando = agregarPensando(opciones);
+
+  try {
+    const r = await api('/api/asistente', {
+      method: 'POST',
+      body: { pregunta: texto, historial: estado.conversacion },
+    });
+
+    estado.conversacion.push({ role: 'user', content: texto });
+    estado.conversacion.push({ role: 'assistant', content: r.respuesta });
+
+    esperando.remove();
+    agregarBurbuja('assistant', markdownBasico(r.respuesta), r, opciones);
+    // La pestaña también muestra la conversación: se replica ahí si está
+    // montada, para que las dos vistas no se contradigan.
+    replicarEnPestana(texto, r);
+  } catch (error) {
+    esperando.remove();
+    agregarFallo(error, opciones);
+  } finally {
+    piraEnviando = false;
+    boton.classList.remove('btn-pending');
+    boton.disabled = false;
+    // Terminó de hablar: vuelve a la boca cerrada.
+    marcarPiraHablando(false);
+    campo.focus();
+  }
+}
+
+/** Refleja en la pestaña del asistente una charla hecha desde la burbuja. */
+function replicarEnPestana(texto, respuesta) {
   const contenedor = $('#asistente-historial');
+  if (!contenedor) return;
+  agregarBurbuja('user', markdownBasico(texto));
+  agregarBurbuja('assistant', markdownBasico(respuesta), respuesta);
+}
+
+/** Agrega una burbuja al historial y baja hasta el final. */
+function agregarBurbuja(rol, html, meta = null, opciones = {}) {
+  const contenedor = opciones.contenedor || $('#asistente-historial');
+  const flotante = opciones.flotante === true;
   const esUsuario = rol === 'user';
 
   const insignia = meta
@@ -1623,17 +2050,24 @@ function agregarBurbuja(rol, html, meta = null) {
 
   const burbuja = document.createElement('div');
   burbuja.className = 'flex items-start gap-3' + (esUsuario ? ' justify-end' : '');
-  burbuja.innerHTML = esUsuario
-    ? `<div class="max-w-[85%] rounded-lg rounded-tr-none bg-primary-600
-                  px-3.5 py-2.5 text-sm leading-relaxed text-white">${html}</div>`
-    : `<div class="grid size-8 shrink-0 place-items-center rounded-full
-                  bg-primary-50 text-sm font-bold text-primary-600">P</div>
+
+  if (esUsuario) {
+    burbuja.innerHTML =
+      `<div class="burbuja burbuja-usuario">${html}</div>`;
+  } else {
+    // En el panel flotante el avatar es la foto de Pira Pires con la boca
+    // cerrada; en la pestaña se mantiene la inicial para no recargarla.
+    const avatar = flotante
+      ? `<img src="img/pescadobocacerrada-avatar.png" alt="" aria-hidden="true"
+              class="mt-0.5 size-7 shrink-0 rounded-full object-cover">`
+      : `<div class="grid size-8 shrink-0 place-items-center rounded-full
+                   bg-primary-50 text-sm font-bold text-primary-600">P</div>`;
+    burbuja.innerHTML = `${avatar}
        <div class="min-w-0 max-w-[85%]">
-         <div class="rounded-lg rounded-tl-none border border-surface-200
-                     bg-surface-50 px-3.5 py-2.5 text-sm leading-relaxed
-                     text-surface-800">${html}</div>
+         <div class="burbuja burbuja-asistente">${html}</div>
          ${insignia ? `<div class="mt-1.5">${insignia}</div>` : ''}
        </div>`;
+  }
 
   contenedor.appendChild(burbuja);
   bajarAlFinal(contenedor);
@@ -1641,13 +2075,18 @@ function agregarBurbuja(rol, html, meta = null) {
 }
 
 /** Indicador mientras el proveedor responde. Se quita al llegar la respuesta. */
-function agregarPensando() {
-  const contenedor = $('#asistente-historial');
+function agregarPensando(opciones = {}) {
+  const contenedor = opciones.contenedor || $('#asistente-historial');
+  const flotante = opciones.flotante === true;
   const caja = document.createElement('div');
   caja.className = 'flex items-start gap-3';
+  const avatar = flotante
+    ? `<img src="img/pescadobocacerrada-avatar.png" alt="" aria-hidden="true"
+            class="mt-0.5 size-7 shrink-0 rounded-full object-cover">`
+    : `<div class="grid size-8 shrink-0 place-items-center rounded-full
+                 bg-primary-50 text-sm font-bold text-primary-600">P</div>`;
   caja.innerHTML = `
-    <div class="grid size-8 shrink-0 place-items-center rounded-full
-                bg-primary-50 text-sm font-bold text-primary-600">P</div>
+    ${avatar}
     <div class="flex items-center gap-1.5 rounded-lg rounded-tl-none border
                 border-surface-200 bg-surface-50 px-3.5 py-3">
       <span class="skeleton size-2"></span>
@@ -1661,18 +2100,16 @@ function agregarPensando() {
 }
 
 /** Falla del asistente: aviso en pantalla y en el historial. */
-function agregarFallo(error) {
+function agregarFallo(error, opciones = {}) {
   avisarError(error);
-  const contenedor = $('#asistente-historial');
+  const contenedor = opciones.contenedor || $('#asistente-historial');
   const caja = document.createElement('div');
   caja.className = 'flex items-start gap-3';
   const mensaje = error?.mensaje || 'No se pudo obtener respuesta.';
   caja.innerHTML = `
     <div class="grid size-8 shrink-0 place-items-center rounded-full
                 bg-warning-50 text-sm font-bold text-warning-600">!</div>
-    <div class="min-w-0 max-w-[85%] rounded-lg rounded-tl-none border
-                border-warning-200 bg-warning-50 px-3.5 py-2.5 text-sm
-                text-warning-700">
+    <div class="burbuja burbuja-error">
       <strong>No pude responder.</strong> ${esc(mensaje)}
     </div>`;
   contenedor.appendChild(caja);

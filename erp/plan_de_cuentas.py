@@ -22,7 +22,8 @@ from .base_datos import conectar, error_sql_a_mensaje, ruta_base_datos
 from .excepciones import ErrorNoEncontrado, ErrorOperacionInvalida, ErrorValidacion
 
 #: Plan de cuentas mínimo exigido por el enunciado (sección 13), ampliado con
-#: las cuentas que necesitan las 15 operaciones de prueba de la sección 19.
+#: las cuentas que necesitan las 15 operaciones de prueba de la sección 19 y
+#: con el bloque completo de IVA de Paraguay (Ley N.º 1259/97).
 #:
 #: Cada fila es: (código, nombre, clasificación, recibe_movimiento, naturaleza)
 #: El quinto elemento es opcional: si se omite, la naturaleza se deduce de la
@@ -31,6 +32,20 @@ from .excepciones import ErrorNoEncontrado, ErrorOperacionInvalida, ErrorValidac
 #: definición), se contabiliza con saldo acreedor porque resta del valor del
 #: bien. Es el mejor ejemplo para mostrar que el ERP diferencia las dos
 #: naturalezas.
+#:
+#: BLOQUE DE IVA (Paraguay). Seis cuentas que cubren el ciclo completo del
+#: impuesto al valor agregado:
+#:
+#:   Débito Fiscal (2.1.02)   -> IVA que se cobra en las ventas. Acreedora.
+#:   Crédito Fiscal (1.1.05)  -> IVA que se paga en las compras. Deudora.
+#:   IVA por Pagar (2.1.03)   -> se acredita al liquidar (débito > crédito).
+#:   IVA a Recuperar (1.1.06) -> se debita cuando el crédito supera al débito.
+#:   Ventas Gravadas (4.1.01) -> ventas alcanzadas por el impuesto.
+#:   Ventas Exentas (4.1.02)  -> ventas no alcanzadas (Art. 15 y sgtes.).
+#:
+#: «Ventas» (4.1) queda como cuenta agrupadora de las dos anteriores, igual
+#: que ACTIVO agrupa a sus subdivisiones: así se puede ver el total vendido
+#: sin perder el detalle de cuánto fue gravado y cuánto exento.
 PLAN_MINIMO = [
     ("1",       "ACTIVO",                        1, False),
     ("1.1",     "ACTIVO CORRIENTE",              1, False),
@@ -38,16 +53,22 @@ PLAN_MINIMO = [
     ("1.1.02",  "Banco",                         1, True),
     ("1.1.03",  "Clientes",                      1, True),
     ("1.1.04",  "Mercaderías",                   1, True),
+    ("1.1.05",  "IVA Crédito Fiscal",            1, True),
+    ("1.1.06",  "IVA a Recuperar",               1, True),
     ("1.2",     "ACTIVO NO CORRIENTE",           1, False),
     ("1.2.01",  "Muebles y Equipos",             1, True),
     ("1.2.02",  "Depreciación Acumulada",        1, True, "A"),
     ("2",       "PASIVO",                        2, False),
     ("2.1",     "PASIVO CORRIENTE",              2, False),
     ("2.1.01",  "Proveedores",                   2, True),
+    ("2.1.02",  "IVA Débito Fiscal",             2, True),
+    ("2.1.03",  "IVA por Pagar",                 2, True),
     ("3",       "PATRIMONIO NETO",               3, False),
     ("3.1",     "Capital",                       3, True),
     ("4",       "INGRESOS",                      4, False),
     ("4.1",     "Ventas",                        4, True),
+    ("4.1.01",  "Ventas Gravadas",               4, True),
+    ("4.1.02",  "Ventas Exentas",                4, True),
     ("5",       "COSTOS",                        5, False),
     ("5.1",     "Costo de Mercaderías Vendidas", 5, True),
     ("6",       "GASTOS",                        6, False),

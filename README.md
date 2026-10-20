@@ -46,23 +46,30 @@ compilar nada: el `<style type="text/tailwindcss">` de `web/index.html`
 acepta `@theme` y `@apply`, así que se puede experimentar cambiando el tema o
 las clases de componente directamente ahí.
 
-El diseño sigue el estilo de **TailGrids UI v3**. Los tokens no están
-inventados: salen de la guía de estilo publicada por el proyecto
-(`https://tailgrids.com/design.md`), que es la fuente de valores real.
+El diseño sigue el estilo de **TailGrids UI v3** en su estructura (componentes,
+radios, sombras, tipografía), pero la **paleta de colores** es la del tema
+**«WhatsApp» de 21st.dev** (`@serafimcloud`): un verde vivo con su escala
+completa. Los valores salen de la imagen de presentación del tema.
 
-| Concepto | Valor en TailGrids v3 | Dónde se usa acá |
-|----------|------------------------|------------------|
-| Primary | `#3758F9` | `--color-primary-600`: botones, ítems activos, anillo de foco |
-| Primary Dark | `#1B44C8` | `--color-primary-700`: estado hover de los botones |
-| Primary Light | `#EEF2FF` | `--color-primary-50`: realce de filas, ítems de navegación, badges |
-| Lienzo | `#FFFFFF` / `#F9FAFB` | tarjetas blancas sobre página `--color-surface-50` |
-| Escala de grises | gray-50 `#F9FAFB` … gray-900 `#111827` | alias `--color-surface-*` |
-| Negro de marca | `#090E34` | `--color-tinta`; es el que tiñe todas las sombras |
-| Semánticos | success `#22C55E`, warning `#F59E0B`, danger `#EF4444`, info `#0EA5E9` | badges, alertas y avisos flotantes |
+| Concepto | Valor del tema WhatsApp | Dónde se usa acá |
+|----------|--------------------------|------------------|
+| Primary | `#25D366` | `--color-primary-500`: realces y acentos decorativos |
+| Primary accesible | `#118442` | `--color-primary-600`: botones y texto sobre blanco (AA, 4.77:1) |
+| Primary Dark | `#075E54` | `--color-primary-700`: estado hover y encabezados sólidos |
+| Primary Light | `#E7F8F0` | `--color-primary-50`: realce de filas, ítems de navegación, badges |
+| Verde profundo | `#053B35` | `--color-primary-900`: texto de máximo contraste |
+| Lienzo | `#FFFFFF` / `#F0F2F5` | tarjetas blancas sobre página `--color-surface-50` |
+| Escala de grises | `#F0F2F5` … `#09090B` | alias `--color-surface-*` |
+| Negro de marca | `#09090B` | `--color-tinta`; es el que tiñe todas las sombras |
+| Semánticos | success, warning, danger, info | badges, alertas y avisos flotantes |
 | Radio | 8px en botones, tarjetas y campos; 12px en diálogos | `--radius-card`, `--radius-field`, `--radius-modal` |
 | Sombras | sm en tarjetas, md en desplegables, lg en popovers, 2xl en modales | `--shadow-xs` … `--shadow-2xl` |
 | Tipografía | Inter 14px / 1.60 / peso 400 | cuerpo; se pide por CDN y cae a `system-ui` sin internet |
-| Foco | anillo de 3px de Primary al 20% | `:focus-visible` en la capa base |
+| Foco | anillo de 3px de verde al 25% | `:focus-visible` en la capa base |
+
+El verde vivo `#25D366` solo alcanza 1.98:1 contra blanco, así que no se usa
+para texto: queda reservado a lo decorativo. Donde hace falta legibilidad se
+usa `#118442`, que es el mismo matiz (H=142) oscurecido hasta cumplir AA.
 
 El resto de las decisiones —un solo botón primario lleno por vista, el
 acento izquierdo de 4px en las alertas, el encabezado de tabla en 12px
@@ -93,7 +100,26 @@ respetar el diseño de la aplicación.
 | **Libro Diario** | Alta de asientos con partidas dinámicas, cuadre en vivo, ciclo de vida completo |
 | **Libro Mayor** | Movimiento de una cuenta o de todas, con saldo acumulado en cada línea |
 | **Balance** | Balance de comprobación con subtotales por clasificación y verificaciones |
+| **IVA** | Calculadora del impuesto, generación de asientos de venta y compra, y liquidación mensual del período |
 | **Controles** | Las 6 reglas de la sección 18 y la demostración de la trazabilidad |
+
+### Pira Pires, el asistente
+
+**Pira Pires** es el asistente contable con IA (Groq como motor principal y
+Gemini como respaldo automático). Responde **solo** con normativa de Paraguay
+—leyes, SET, DNIT, SITRADE— y rechaza con educación las consultas sobre
+normativa de otros países, redirigiendo a la paraguaya.
+
+Se abre de dos maneras, con la misma conversación compartida:
+
+* desde la pestaña **Asistente** del menú lateral, o
+* desde la **burbuja flotante** de la esquina inferior derecha, que despliega
+  un panel de chat sobre la vista en la que se está trabajando.
+
+La foto del asistente es un pez: **boca cerrada** cuando escucha y **boca
+abierta** mientras redacta la respuesta. Al tocar la burbuja, el pez saluda
+abriendo la boca un instante.
+
 
 ---
 
@@ -110,12 +136,15 @@ erp/
   libro_diario.py          Etapa 1 · Libro Diario (única fuente de carga)
   libro_mayor.py           Etapa 2 · Libro Mayor automático
   balance.py               Etapa 3 · Balance de comprobación
+  iva.py                   IVA de Paraguay (Ley N.º 1259/97)
+  asistente.py             Pira Pires: Groq con respaldo en Gemini
   datos_demo.py            empresa ficticia con las 15 operaciones
   servidor.py              API JSON + servidor de archivos estáticos
 web/
   index.html               interfaz, tokens @theme y clases de componente
   ui.js                    componentes con la API de props de TailGrids
   app.js                   lógica de la interfaz
+  img/                     fotos de Pira Pires (boca abierta y cerrada)
   vendor/                  Tailwind v4 vendorizado
 datos/                     aquí se crea erp.db al arrancar
 INICIAR.sh                arranque rápido (carga la demo y abre el navegador)
@@ -206,6 +235,13 @@ propósito: es un Activo pero se contabiliza con saldo acreedor, porque es una
 cuenta contrapasiva. Es el mejor ejemplo para mostrar que el ERP de verdad
 distingue las dos naturalezas.
 
+**El IVA se discrimina, no se resta.** Cuando el importe ya trae el impuesto
+adentro (lo habitual en una factura), la base se obtiene dividiendo por
+`1 + alícuota`, no restando un porcentaje del total. Restar el 10 % de un total
+de G. 1.100.000 daría G. 110.000 de IVA, cuando el IVA real es G. 100.000. Con
+la división, la base reconstruida siempre vuelve a dar el total exacto y el
+asiento nunca queda descuadrado por un centavo.
+
 **Cuentas agrupadoras** (`recibe_movimiento = 0`, como `1 ACTIVO` o
 `2.1.01 Proveedores`… bueno, las de nivel 1 y 2) no admiten asientos: el
 movimiento se registra siempre en una cuenta de detalle.
@@ -234,10 +270,25 @@ comercio mayorista de mercaderías, abril de 2026.
 
 ### 1. Plan de cuentas (sección 13)
 
-21 cuentas: Activo (Caja, Banco, Clientes, Mercaderías, Muebles y Equipos,
-Depreciación Acumulada), Pasivo (Proveedores), Patrimonio Neto (Capital),
-Ingresos (Ventas), Costos (Costo de Mercaderías Vendidas) y Gastos
-(Administrativos, de Ventas).
+27 cuentas. Las 21 del enunciado más el **bloque de IVA** de Paraguay
+(Ley N.º 1259/97). El enunciado original tiene: Activo (Caja, Banco, Clientes,
+Mercaderías, Muebles y Equipos, Depreciación Acumulada), Pasivo (Proveedores),
+Patrimonio Neto (Capital), Ingresos (Ventas), Costos (Costo de Mercaderías
+Vendidas) y Gastos (Administrativos, de Ventas).
+
+El bloque de IVA agrega seis cuentas que cubren el ciclo completo del impuesto:
+
+| Código | Cuenta | Naturaleza | Rol |
+|--------|--------|------------|-----|
+| 1.1.05 | IVA Crédito Fiscal | Deudora | IVA pagado en las compras |
+| 1.1.06 | IVA a Recuperar | Deudora | saldo a favor cuando el crédito supera al débito |
+| 2.1.02 | IVA Débito Fiscal | Acreedora | IVA cobrado en las ventas |
+| 2.1.03 | IVA por Pagar | Acreedora | saldo a favor del fisco al liquidar |
+| 4.1.01 | Ventas Gravadas | Acreedora | ventas alcanzadas por el impuesto |
+| 4.1.02 | Ventas Exentas | Acreedora | ventas no alcanzadas (Art. 15 y sgtes.) |
+
+`4.1 Ventas` queda como cuenta **agrupadora** de las dos últimas: así se ve el
+total vendido sin perder el detalle de cuánto fue gravado y cuánto exento.
 
 ### 2. Libro Diario (sección 14) — las 15 operaciones
 
@@ -333,6 +384,41 @@ Activo 115.350.000 = Pasivo 27.000.000 + Capital 50.000.000 + Resultado 38.350.0
 Mayor cuenta por cuenta y devuelve `coincide: True` con la lista de
 diferencias vacía. Esa es la demostración de los controles 4 y 5.
 
+### 7. IVA de Paraguay (Ley N.º 1259/97)
+
+El módulo `erp/iva.py` resuelve las tres operaciones con IVA. Todas aceptan la
+**base imponible** o el **importe total** (con el impuesto incluido), que es lo
+que trae una factura.
+
+**Venta de G. 1.000.000 al 10 %**, cobrada en efectivo:
+
+| Cuenta | Debe | Haber |
+|--------|------|-------|
+| 1.1.01 Caja | G. 1.100.000,00 | |
+| 4.1.01 Ventas Gravadas | | G. 1.000.000,00 |
+| 2.1.02 IVA Débito Fiscal | | G. 100.000,00 |
+
+**Compra de G. 500.000 al 10 %**, pagada en efectivo:
+
+| Cuenta | Debe | Haber |
+|--------|------|-------|
+| 1.1.04 Mercaderías | G. 500.000,00 | |
+| 1.1.05 IVA Crédito Fiscal | G. 50.000,00 | |
+| 1.1.01 Caja | | G. 550.000,00 |
+
+**Liquidación del período** (Formulario 120 de la SET): se cruza el Débito
+Fiscal contra el Crédito Fiscal. Si el débito supera al crédito queda un saldo
+a pagar en `2.1.03 IVA por Pagar`; si el crédito supera al débito, queda
+`1.1.06 IVA a Recuperar`.
+
+Con los dos asientos anteriores: débito G. 100.000 − crédito G. 50.000 =
+**G. 50.000,00 a pagar**.
+
+El impuesto se guarda siempre en **centavos enteros** y el redondeo es
+comercial (medio centavo sube), que es el criterio de la declaración jurada.
+Una operación **exenta** (alícuota 0) no genera línea de IVA y va a la cuenta
+`4.1.02 Ventas Exentas`.
+
 ---
 
 ## La API
@@ -357,6 +443,13 @@ códigos HTTP con sentido.
 | GET | `/api/balance` | Balance de comprobación |
 | GET | `/api/balance/cruce` | Cruce Balance ↔ Libro Mayor |
 | GET | `/api/controles` | Estado de los 6 controles |
+| GET | `/api/iva/alicuotas` | Alícuotas vigentes (10 %, 5 %, exenta) |
+| POST | `/api/iva/calcular` | Calcular / discriminar el IVA de un importe |
+| POST | `/api/iva/asiento` | Generar y contabilizar el asiento de venta o compra |
+| GET | `/api/iva/resumen` | Débito y Crédito Fiscal del período |
+| POST | `/api/iva/liquidar` | Contabilizar la liquidación del período |
+| GET | `/api/asistente/configuracion` | Estado de los proveedores de la IA |
+| POST | `/api/asistente` | Consultar a Pira Pires |
 | POST | `/api/datos-demo` | Cargar las 15 operaciones |
 | POST | `/api/reiniciar` | Vaciar la base |
 
@@ -393,3 +486,9 @@ $ curl -s -X POST localhost:8000/api/asientos -H 'Content-Type: application/json
 - Los estados contables de la sección 17 (Estado de Situación Patrimonial y
   Estado de Resultados) quedan **fuera del alcance**: el enunciado pide las
   etapas 1 a 3.
+- El módulo de **IVA** y el **asistente Pira Pires** son extensiones sobre el
+  enunciado: agregan el impuesto al valor agregado de Paraguay y una ayuda
+  contable con IA, sin tocar los controles 1 a 6.
+- Las claves de los proveedores de IA **no van al repositorio**: se leen de
+  `claves.env` (ignorado por git) o de variables de entorno. El sistema
+  funciona igual sin ellas; solo se desactiva el asistente.

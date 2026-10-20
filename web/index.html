@@ -33,22 +33,23 @@
      Editá lo que quieras acá y se refleja en toda la aplicación.
      ===================================================================== */
   @theme {
-    /* --- primary: azul de acción -----------------------------------
-       TailGrids llama "Primary" al acento índigo-azul de la marca. Los
-       tres tonos que publica la guía son 600 (base), 700 (hover) y 50
-       (fondo de realce); el resto del ramp se interpola para que las
+    /* --- primary: verde de acción ----------------------------------
+       Paleta del tema «WhatsApp» de la comunidad de 21st.dev
+       (@serafimcloud): verde esmeralda vivo sobre gris frío.
+       Los tres tonos que definen el tema son 600 (base), 700 (hover) y
+       50 (fondo de realce); el resto del ramp se interpola para que las
        utilidades intermedias (anillos, bordes) no queden inventadas. */
-    --color-primary-50:  #eef2ff;  /* Primary Light */
-    --color-primary-100: #e0e7ff;
-    --color-primary-200: #c7d2fe;
-    --color-primary-300: #a5b4fc;
-    --color-primary-400: #818cf8;
-    --color-primary-500: #6372f9;
-    --color-primary-600: #3758f9;  /* Primary */
-    --color-primary-700: #1b44c8;  /* Primary Dark */
-    --color-primary-800: #1536a0;
-    --color-primary-900: #122b7d;
-    --color-primary-950: #0d1f57;
+    --color-primary-50:  #e7f8f0;  /* fondo de realce del tema */
+    --color-primary-100: #d0f1e0;
+    --color-primary-200: #a3e6c1;
+    --color-primary-300: #70d79e;
+    --color-primary-400: #4acb84;
+    --color-primary-500: #25d366;  /* verde vivo: el acento del tema */
+    --color-primary-600: #118442;  /* Primary: botones y enlaces */
+    --color-primary-700: #075e54;  /* Primary Dark: hover y activo */
+    --color-primary-800: #064b43;
+    --color-primary-900: #053b35;
+    --color-primary-950: #032622;
 
     /* --- success: verde de confirmación --------------------------- */
     --color-success-50:  #f0fdf4;  /* Success Light */
@@ -93,20 +94,21 @@
     --color-info-700: #0369a1;
 
     /* --- surface: grises de la interfaz -----------------------------
-       TailGrids no inventa una escala propia: usa la de Tailwind (gray),
-       que va de #F9FAFB a #111827. "surface" es el alias que usa el HTML
-       para no depender de ese nombre. */
-    --color-surface-50:  #f9fafb;  /* fondo de página */
-    --color-surface-100: #f3f4f6;  /* campos, filas alternadas, sidebar */
-    --color-surface-200: #e5e7eb;  /* bordes de tarjeta y de divisor */
-    --color-surface-300: #d1d5db;  /* borde de campo, separadores fuertes */
-    --color-surface-400: #9ca3af;  /* placeholder, icono en reposo */
-    --color-surface-500: #6b7280;  /* texto secundario, encabezado de tabla */
-    --color-surface-600: #4b5563;
-    --color-surface-700: #374151;  /* texto de campo, subtítulos */
-    --color-surface-800: #1f2937;  /* texto de cuerpo */
-    --color-surface-900: #111827;  /* títulos, texto de máximo contraste */
-    --color-tinta:      #090e34;  /* negro de marca, con matizíndigo */
+       El tema «WhatsApp» no usa la escala gray de Tailwind: usa un gris
+       frío propio que arranca en #F0F2F5 (fondo de página) y termina en
+       #09090B (texto). «surface» es el alias que usa el HTML para no
+       depender del nombre de la escala. */
+    --color-surface-50:  #f0f2f5;  /* fondo de página */
+    --color-surface-100: #e9edef;  /* campos, filas alternadas, sidebar */
+    --color-surface-200: #e3e7ea;  /* bordes de tarjeta y de divisor */
+    --color-surface-300: #c7cace;  /* borde de campo, separadores fuertes */
+    --color-surface-400: #9da2a6;  /* placeholder, icono en reposo */
+    --color-surface-500: #6c6c6d;  /* texto secundario, encabezado de tabla */
+    --color-surface-600: #545455;
+    --color-surface-700: #3b3b3c;  /* texto de campo, subtítulos */
+    --color-surface-800: #232324;  /* texto de cuerpo */
+    --color-surface-900: #09090b;  /* títulos, texto de máximo contraste */
+    --color-tinta:      #09090b;  /* negro de marca, sin matiz de color */
 
     /* --- radios ------------------------------------------------------
        TailGrids fija 8px como radio estándar (botones, tarjetas,
@@ -118,23 +120,23 @@
     --radius-panel: 0.75rem;
 
     /* --- sombras ----------------------------------------------------
-       Todas teñidas de #090E34 (el negro de marca) y no de negro puro:
+       Todas teñidas de #09090B (el negro del tema) y no de negro puro:
        es lo que da el aire "Crisp Open Canvas" en lugar de un gris
        sucio. La elevación sube por pasos: tarjeta sm, desplegable md,
        popover lg, modal 2xl. */
-    --shadow-xs:  0 1px 2px 0 rgb(9 14 52 / 0.06);
-    --shadow-sm:  0 1px 3px 0 rgb(9 14 52 / 0.10), 0 1px 2px 0 rgb(9 14 52 / 0.06);
-    --shadow-md:  0 4px 6px -1px rgb(9 14 52 / 0.10), 0 2px 4px -1px rgb(9 14 52 / 0.06);
-    --shadow-lg:  0 10px 15px -3px rgb(9 14 52 / 0.10), 0 4px 6px -2px rgb(9 14 52 / 0.05);
-    --shadow-xl:  0 20px 25px -5px rgb(9 14 52 / 0.10), 0 10px 10px -5px rgb(9 14 52 / 0.04);
-    --shadow-2xl: 0 25px 50px -12px rgb(9 14 52 / 0.25);
+    --shadow-xs:  0 1px 2px 0 rgb(9 9 11 / 0.06);
+    --shadow-sm:  0 1px 3px 0 rgb(9 9 11 / 0.10), 0 1px 2px 0 rgb(9 9 11 / 0.06);
+    --shadow-md:  0 4px 6px -1px rgb(9 9 11 / 0.10), 0 2px 4px -1px rgb(9 9 11 / 0.06);
+    --shadow-lg:  0 10px 15px -3px rgb(9 9 11 / 0.10), 0 4px 6px -2px rgb(9 9 11 / 0.05);
+    --shadow-xl:  0 20px 25px -5px rgb(9 9 11 / 0.10), 0 10px 10px -5px rgb(9 9 11 / 0.04);
+    --shadow-2xl: 0 25px 50px -12px rgb(9 9 11 / 0.25);
 
     /* Alias que usa el HTML. Van escritos al pie de la letra y no como
        `var(--shadow-sm)`: dentro de `@theme` una referencia a otra
        variable no la registra Tailwind como usada, así que podría
        podarse y dejar la sombra sin resolver. */
-    --shadow-panel: 0 1px 3px 0 rgb(9 14 52 / 0.10), 0 1px 2px 0 rgb(9 14 52 / 0.06);
-    --shadow-float: 0 25px 50px -12px rgb(9 14 52 / 0.25);
+    --shadow-panel: 0 1px 3px 0 rgb(9 9 11 / 0.10), 0 1px 2px 0 rgb(9 9 11 / 0.06);
+    --shadow-float: 0 25px 50px -12px rgb(9 9 11 / 0.25);
 
     /* --- tipografía --------------------------------------------------
        Inter es la única familia de UI; la monoespaciada es solo para
@@ -180,10 +182,11 @@
 
     /* Foco visible y consistente en toda la app (lo que aporta React Aria
        en los componentes de TailGrids, hecho a mano aquí): anillo de
-       3px de Primary al 20%, sin desplazar el diseño. */
+       3px de Primary al 20%, sin desplazar el diseño. Va en el verde del
+       tema, no en el índigo anterior. */
     :focus-visible {
       outline: none;
-      box-shadow: 0 0 0 3px rgb(55 88 249 / 0.20);
+      box-shadow: 0 0 0 3px rgb(37 211 102 / 0.25);
       border-radius: 4px;
     }
 
@@ -463,6 +466,48 @@
     .toast-warning { @apply border-l-warning-500; }
     .toast-info    { @apply border-l-info-500; }
 
+    /* ---------------- Asistente flotante ----------------
+       Burbuja que abre un panel de chat sobre la esquina inferior derecha.
+       El panel se ancla con `fixed` y no empuja el diseño, así que se puede
+       abrir desde cualquier vista sin perder el contexto.
+       z-70 queda por encima de los avisos (z-60) y del diálogo (z-50). */
+    .asistente-burbuja {
+      @apply fixed right-4 bottom-4 z-70 grid size-14 place-items-center
+             overflow-hidden rounded-full border-2 border-white bg-white
+             shadow-float transition-transform duration-150
+             hover:scale-105 focus-visible:outline-none sm:right-6 sm:bottom-6;
+    }
+    .asistente-burbuja img { @apply size-full object-cover; }
+
+    .asistente-panel {
+      @apply fixed right-4 bottom-4 z-70 flex max-h-[min(640px,calc(100vh-2rem))]
+             w-[min(26rem,calc(100vw-2rem))] flex-col overflow-hidden
+             rounded-modal border border-surface-200 bg-white shadow-float
+             sm:right-6 sm:bottom-6;
+      animation: aparecer 150ms ease-out;
+    }
+    .asistente-panel-cabecera {
+      @apply flex items-center gap-3 border-b border-surface-200 bg-primary-600
+             px-4 py-3 text-white;
+    }
+    .asistente-historial {
+      @apply flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-surface-50 p-4;
+    }
+    .asistente-pie { @apply border-t border-surface-200 bg-white p-3; }
+
+    /* Burbujas del chat, al estilo de una conversación: la del usuario a la
+       derecha y en verde, la del asistente a la izquierda y en blanco. */
+    .burbuja { @apply max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed; }
+    .burbuja-usuario {
+      @apply ml-auto rounded-tr-none bg-primary-600 text-white;
+    }
+    .burbuja-asistente {
+      @apply mr-auto rounded-tl-none border border-surface-200 bg-white text-surface-700;
+    }
+    .burbuja-error {
+      @apply mr-auto rounded-tl-none border border-danger-200 bg-danger-50 text-danger-700;
+    }
+
     /* ---------------- Misceláneos ---------------- */
     .spinner {
       @apply inline-block size-4 animate-spin rounded-full border-2
@@ -496,7 +541,7 @@
     .no-imprimir { display: none !important; }
     body { background: #fff !important; }
     .card, .kpi {
-      border: 1px solid #e5e7eb !important;
+      border: 1px solid #e3e7ea !important;
       box-shadow: none !important;
       break-inside: avoid;
     }
@@ -542,6 +587,9 @@
       </button>
       <button class="tab" role="tab" id="tab-balance" data-vista="balance" aria-controls="vista-balance">
         <span class="tab-icon">4</span> Balance
+      </button>
+      <button class="tab" role="tab" id="tab-iva" data-vista="iva" aria-controls="vista-iva">
+        <span class="tab-icon">5</span> IVA
       </button>
 
       <p class="px-3 pt-4 pb-1.5 text-[11px] font-semibold tracking-wider
@@ -609,6 +657,7 @@
         <button class="tab-movil" role="tab" id="tabm-diario" data-vista="diario" aria-controls="vista-diario">Libro Diario</button>
         <button class="tab-movil" role="tab" id="tabm-mayor" data-vista="mayor" aria-controls="vista-mayor">Libro Mayor</button>
         <button class="tab-movil" role="tab" id="tabm-balance" data-vista="balance" aria-controls="vista-balance">Balance</button>
+        <button class="tab-movil" role="tab" id="tabm-iva" data-vista="iva" aria-controls="vista-iva">IVA</button>
         <button class="tab-movil" role="tab" id="tabm-controles" data-vista="controles" aria-controls="vista-controles">Controles</button>
         <button class="tab-movil" role="tab" id="tabm-asistente" data-vista="asistente" aria-controls="vista-asistente">Asistente</button>
       </div>
@@ -843,6 +892,137 @@
       </section>
 
       <!-- ===============================================================
+           IVA DE PARAGUAY  (Ley N.º 1259/97)
+           Tres bloques: calculadora del importe, generación del asiento de
+           venta o compra, y liquidación mensual del período.
+           =============================================================== -->
+      <section id="vista-iva" role="tabpanel" aria-labelledby="tab-iva" class="vista oculto">
+        <div class="card mb-4">
+          <div class="card-header flex-wrap gap-2">
+            <div>
+              <h2 class="card-title">IVA · Impuesto al Valor Agregado</h2>
+              <p class="card-subtitle">
+                Tasas vigentes de Paraguay (Ley N.º 1259/97): 10 % general, 5 % reducida
+                y operaciones exentas
+              </p>
+            </div>
+            <div id="iva-estado" class="ml-auto"></div>
+          </div>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+          <!-- Calculadora + generación del asiento -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Operación con IVA</h3>
+                <p class="card-subtitle">
+                  Calculá el impuesto y contabilizá la venta o la compra
+                </p>
+              </div>
+            </div>
+            <div class="card-body space-y-3">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="field">
+                  <label class="label" for="iva-tipo">Tipo de operación</label>
+                  <select id="iva-tipo" class="select">
+                    <option value="venta">Venta</option>
+                    <option value="compra">Compra</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="label" for="iva-alicuota">Alícuota</label>
+                  <select id="iva-alicuota" class="select"></select>
+                </div>
+              </div>
+
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="field">
+                  <label class="label" for="iva-modo">¿Qué importe conocés?</label>
+                  <select id="iva-modo" class="select">
+                    <option value="base">La base imponible (sin IVA)</option>
+                    <option value="total">El importe total (con IVA)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="label" for="iva-importe">Importe</label>
+                  <input id="iva-importe" type="text" inputmode="decimal"
+                         class="input" placeholder="1.000.000">
+                </div>
+              </div>
+
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="field">
+                  <label class="label" for="iva-cuenta">Cuenta de cobro o pago</label>
+                  <select id="iva-cuenta" class="select"></select>
+                </div>
+                <div class="field" id="iva-campo-gasto">
+                  <label class="label" for="iva-cuenta-gasto">Cuenta de gasto o bien</label>
+                  <select id="iva-cuenta-gasto" class="select"></select>
+                </div>
+              </div>
+
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="field">
+                  <label class="label" for="iva-fecha">Fecha</label>
+                  <input id="iva-fecha" type="date" class="input">
+                </div>
+                <div class="field">
+                  <label class="label" for="iva-concepto">Concepto</label>
+                  <input id="iva-concepto" type="text" class="input"
+                         placeholder="Venta de mercaderías">
+                </div>
+              </div>
+
+              <div id="iva-desglose" class="rounded-lg border border-surface-200
+                                              bg-surface-50 p-4 text-sm"></div>
+
+              <button id="btn-iva-contabilizar" class="btn btn-md btn-primary-fill w-full">
+                Contabilizar el asiento
+              </button>
+            </div>
+          </div>
+
+          <!-- Liquidación del período -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Liquidación del período</h3>
+                <p class="card-subtitle">
+                  Débito Fiscal contra Crédito Fiscal · Formulario 120 de la SET
+                </p>
+              </div>
+            </div>
+            <div class="card-body space-y-3">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="field">
+                  <label class="label" for="iva-desde">Desde</label>
+                  <input id="iva-desde" type="date" class="input">
+                </div>
+                <div class="field">
+                  <label class="label" for="iva-hasta">Hasta</label>
+                  <input id="iva-hasta" type="date" class="input">
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <button id="btn-iva-resumen" class="btn btn-md btn-secondary-outline">
+                  Ver resumen del período
+                </button>
+                <button id="btn-iva-liquidar" class="btn btn-md btn-primary-fill">
+                  Contabilizar la liquidación
+                </button>
+              </div>
+
+              <div id="iva-liquidacion"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="iva-resultado"></div>
+      </section>
+
+      <!-- ===============================================================
            CONTROLES Y REGLAS  (sección 18)
            =============================================================== -->
       <section id="vista-controles" role="tabpanel" aria-labelledby="tab-controles" class="vista oculto">
@@ -958,6 +1138,59 @@
      mensajes sin robar el foco (igual que el Toast de TailGrids). -->
 <div id="avisos" class="toast-region no-imprimir" role="region" aria-label="Avisos"
      aria-live="polite"></div>
+
+<!-- =====================================================================
+     PIRA PIRES · ASISTENTE FLOTANTE
+     La burbuja vive fija en la esquina inferior derecha. Al tocarla se
+     abre el panel de chat, que es el mismo asistente de la pestaña pero
+     sin salir de la vista en la que se está trabajando.
+     ===================================================================== -->
+<button id="pira-burbuja" type="button"
+        class="asistente-burbuja no-imprimir"
+        aria-label="Abrir el asistente Pira Pires"
+        aria-controls="pira-panel" aria-expanded="false">
+  <img id="pira-burbuja-imagen" src="img/pescadobocacerrada-avatar.png"
+       alt="Pira Pires, asistente contable">
+</button>
+
+<section id="pira-panel" class="asistente-panel no-imprimir oculto"
+         role="dialog" aria-modal="false" aria-labelledby="pira-titulo">
+  <header class="asistente-panel-cabecera">
+    <img id="pira-cabecera-imagen" src="img/pescadobocaabierta-avatar.png"
+         alt="" aria-hidden="true"
+         class="size-9 shrink-0 rounded-full border-2 border-white/70 object-cover">
+    <div class="min-w-0">
+      <p id="pira-titulo" class="truncate text-sm font-semibold">Pira Pires</p>
+      <p class="truncate text-xs text-white/80">Asistente contable · Paraguay</p>
+    </div>
+    <button id="pira-cerrar" type="button"
+            class="ml-auto grid size-8 shrink-0 place-items-center rounded-md
+                   text-white/90 transition hover:bg-white/15
+                   focus-visible:outline-none"
+            aria-label="Cerrar el asistente">
+      <span aria-hidden="true" class="text-lg leading-none">&times;</span>
+    </button>
+  </header>
+
+  <div id="pira-historial" class="asistente-historial" aria-live="polite">
+    <div class="flex items-start gap-2">
+      <img src="img/pescadobocaabierta-avatar.png" alt=""
+           aria-hidden="true" class="mt-0.5 size-7 shrink-0 rounded-full object-cover">
+      <div class="burbuja burbuja-asistente">
+        Hola, soy Pira Pires. Preguntame sobre contabilidad, impuestos o el uso
+        del sistema. Respondo solo con normativa paraguaya vigente.
+      </div>
+    </div>
+  </div>
+
+  <form id="pira-formulario" class="asistente-pie flex gap-2" novalidate>
+    <label class="sr-only" for="pira-pregunta">Pregunta para Pira Pires</label>
+    <input id="pira-pregunta" type="text" autocomplete="off"
+           class="input min-w-0 flex-1" placeholder="Escribí tu pregunta…">
+    <button id="pira-enviar" type="submit"
+            class="btn btn-md btn-primary-fill shrink-0">Enviar</button>
+  </form>
+</section>
 
 <script src="ui.js"></script>
 <script src="app.js"></script>

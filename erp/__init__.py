@@ -11,6 +11,8 @@ Paquete del sistema. Cada módulo corresponde a una etapa del enunciado:
     erp.libro_diario    Etapa 1 · Libro Diario (sección 14)
     erp.libro_mayor     Etapa 2 · Libro Mayor automático (sección 15)
     erp.balance         Etapa 3 · Balance de comprobación (sección 16)
+    erp.iva             IVA de Paraguay (Ley N.º 1259/97)
+    erp.asistente       Pira Pires: asistente con Groq y respaldo en Gemini
     erp.datos_demo      Empresa ficticia con 15 operaciones (sección 19)
     erp.servidor        API JSON y servidor web
 """
