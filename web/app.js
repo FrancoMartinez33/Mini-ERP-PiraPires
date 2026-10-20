@@ -1882,7 +1882,11 @@ async function enviarPregunta() {
     estado.conversacion.push({ role: 'assistant', content: r.respuesta });
 
     esperando.remove();
-    agregarBurbuja('assistant', markdownBasico(r.respuesta), r);
+    // Se crea la burbuja vacía y el texto se escribe de a poco adentro.
+    const respuesta = agregarBurbuja('assistant', '', r);
+    animarEscritura(respuesta.cuerpo, markdownBasico(r.respuesta), {
+      alEscribir: () => bajarAlFinal(respuesta.contenedor),
+    });
   } catch (error) {
     esperando.remove();
     agregarFallo(error);
@@ -1922,6 +1926,9 @@ function alternarPira(abrir) {
 
   panel.classList.toggle('oculto', !piraAbierto);
   burbuja.setAttribute('aria-expanded', String(piraAbierto));
+  // El panel se abre pegado a la burbuja, así el chat aparece donde está el
+  // pez y no en una esquina lejana.
+  if (piraAbierto) ubicarPanelJuntoAburbuja();
   // Al cerrar, el pez vuelve a la boca cerrada. Al abrir **no** se toca la
   // foto: la elige quien llama (`enviarPreguntaPira` cuando piensa, y el
   // propio botón cuando saluda), así el gesto de saludo no se pisa.
@@ -1932,6 +1939,50 @@ function alternarPira(abrir) {
   } else {
     burbuja.focus();
   }
+}
+
+/**
+ * Coloca el panel flotante junto a la burbuja, sin salirse de la pantalla.
+ *
+ * Si la burbuja está en su esquina (sin `left` inline), el panel usa su
+ * posición de hoja de estilos y no se toca nada. Si el usuario la arrastró,
+ * el panel se ancla arriba o al costado según dónde haya quedado.
+ */
+function ubicarPanelJuntoAburbuja() {
+  const burbuja = $('#pira-burbuja');
+  const panel = $('#pira-panel');
+  if (!burbuja || !panel) return;
+
+  // Sin arrastre no hay nada que recalcular: manda el CSS.
+  if (!burbuja.style.left) {
+    panel.style.left = '';
+    panel.style.top = '';
+    panel.style.right = '';
+    panel.style.bottom = '';
+    return;
+  }
+
+  const caja = burbuja.getBoundingClientRect();
+  const ancho = panel.offsetWidth || 480;
+  const alto = panel.offsetHeight || 560;
+  const margen = 12;
+  const separacion = 10;
+  let izquierda = caja.left + caja.width / 2 - ancho / 2;
+  let arriba = caja.top - alto - separacion;
+
+  // Si no cabe arriba, se abre debajo de la burbuja.
+  if (arriba < margen) arriba = caja.bottom + separacion;
+  // Si tampoco cabe debajo, se ancla al borde inferior.
+  if (arriba + alto > window.innerHeight - margen) {
+    arriba = Math.max(margen, window.innerHeight - alto - margen);
+  }
+  izquierda = Math.min(Math.max(margen, izquierda),
+    Math.max(margen, window.innerWidth - ancho - margen));
+
+  panel.style.left = `${izquierda}px`;
+  panel.style.top = `${arriba}px`;
+  panel.style.right = 'auto';
+  panel.style.bottom = 'auto';
 }
 
 /**
@@ -1953,21 +2004,24 @@ function marcarPiraHablando(hablando) {
   if (cabecera && !cabecera.src.endsWith(archivo)) cabecera.src = archivo;
 }
 
+/** Clave de `localStorage` donde se recuerda dónde quedó la burbuja. */
+const CLAVE_POSICION = 'pira-posicion';
+/** Cuántos píxeles hay que mover para que deje de ser un toque y pase a ser
+ *  un arrastre. Por debajo de este umbral, el gesto abre el chat. */
+const UMBRAL_ARRASTRE = 6;
+/** Cuánto hay que mantener presionado, en móvil, para reiniciar la posición. */
+const ESPERA_MANTENER = 650;
+
 async function cargarPiraFlotante() {
   const burbuja = $('#pira-burbuja');
   const panel = $('#pira-panel');
   if (!burbuja || !panel) return;
 
-  burbuja.onclick = () => {
-    const abrir = !piraAbierto;
-    // Pequeño gesto: al abrir, el pez abre la boca y vuelve a cerrarla,
-    // como si terminara de decir "acá estoy".
-    if (abrir) {
-      marcarPiraHablando(true);
-      setTimeout(() => marcarPiraHablando(false), 450);
-    }
-    alternarPira(abrir);
-  };
+  // La posición guardada se restaura antes de cualquier cosa, así la burbuja
+  // aparece donde el usuario la dejó y no salta de la esquina al cargar.
+  restaurarPosicionPira(burbuja);
+
+  conectarArrastrePira(burbuja);
 
   $('#pira-cerrar').onclick = () => alternarPira(false);
 
@@ -1980,6 +2034,198 @@ async function cargarPiraFlotante() {
     evento.preventDefault();
     enviarPreguntaPira();
   };
+
+  // Si cambia el tamaño de la ventana, la burbuja y el panel se reacomodan
+  // para no quedar fuera de la pantalla.
+  window.addEventListener('resize', () => {
+    if (burbuja.style.left) {
+      const caja = burbuja.getBoundingClientRect();
+      colocarBurbuja(burbuja, caja.left, caja.top);
+    }
+    if (piraAbierto) ubicarPanelJuntoAburbuja();
+  });
+}
+
+/**
+ * Hace que la burbuja se pueda arrastrar como la de Messenger.
+ *
+ * Se usan **eventos de puntero**, que unifican mouse, dedo y lápiz. El gesto
+ * se resuelve así:
+ *
+ *   · mover menos de `UMBRAL_ARRASTRE` px  -> es un toque: abre o cierra el chat
+ *   · mover más                            -> es un arrastre: la burbuja sigue
+ *                                             al puntero y queda donde se suelte
+ *   · doble clic (o doble toque)           -> vuelve a su esquina original
+ *   · mantener presionado en móvil         -> vuelve a su esquina original
+ *
+ * La posición queda dentro de la pantalla y se recuerda entre visitas.
+ */
+function conectarArrastrePira(burbuja) {
+  let arrastrando = false;
+  let movido = false;
+  let inicio = { x: 0, y: 0, izq: 0, arriba: 0 };
+  let puntero = null;
+  let esperaMantener = null;
+
+  const cancelarMantener = () => {
+    if (esperaMantener !== null) {
+      clearTimeout(esperaMantener);
+      esperaMantener = null;
+    }
+  };
+
+  burbuja.addEventListener('pointerdown', (evento) => {
+    // Solo el botón principal del mouse; el resto (rueda, botón derecho) no.
+    if (evento.button !== 0) return;
+    puntero = evento.pointerId;
+    arrastrando = true;
+    movido = false;
+
+    const caja = burbuja.getBoundingClientRect();
+    inicio = { x: evento.clientX, y: evento.clientY, izq: caja.left, arriba: caja.top };
+
+    // En móvil (sin mouse) mantener presionado reinicia la posición. Se
+    // arma un temporizador que se cancela apenas el dedo se mueve.
+    if (evento.pointerType !== 'mouse') {
+      cancelarMantener();
+      esperaMantener = setTimeout(() => {
+        if (!movido) {
+          reiniciarPosicionPira(burbuja);
+          arrastrando = false;
+        }
+      }, ESPERA_MANTENER);
+    }
+  });
+
+  burbuja.addEventListener('pointermove', (evento) => {
+    if (!arrastrando || evento.pointerId !== puntero) return;
+
+    const dx = evento.clientX - inicio.x;
+    const dy = evento.clientY - inicio.y;
+
+    if (!movido && Math.hypot(dx, dy) < UMBRAL_ARRASTRE) return;
+
+    // Pasado el umbral, es un arrastre: se cancela el gesto de mantener y se
+    // pasa a posicionamiento absoluto con `left`/`top` en píxeles.
+    if (!movido) {
+      movido = true;
+      cancelarMantener();
+      burbuja.classList.add('arrastrando');
+      burbuja.setPointerCapture(evento.pointerId);
+      pasarAAbsoluta(burbuja, inicio.izq, inicio.arriba);
+    }
+
+    colocarBurbuja(burbuja, inicio.izq + dx, inicio.arriba + dy);
+  });
+
+  const soltar = (evento) => {
+    if (!arrastrando || evento.pointerId !== puntero) return;
+    cancelarMantener();
+    arrastrando = false;
+    puntero = null;
+    burbuja.classList.remove('arrastrando');
+
+    if (movido) {
+      // Fue un arrastre: se guarda dónde quedó y **no** se abre el chat.
+      guardarPosicionPira(burbuja);
+      return;
+    }
+
+    // Fue un toque: se abre o cierra el panel, con el saludo del pez.
+    const abrir = !piraAbierto;
+    if (abrir) {
+      marcarPiraHablando(true);
+      setTimeout(() => marcarPiraHablando(false), 450);
+    }
+    alternarPira(abrir);
+  };
+
+  burbuja.addEventListener('pointerup', soltar);
+  burbuja.addEventListener('pointercancel', (evento) => {
+    cancelarMantener();
+    if (arrastrando && movido) guardarPosicionPira(burbuja);
+    arrastrando = false;
+    puntero = null;
+    burbuja.classList.remove('arrastrando');
+    void evento;
+  });
+
+  // Doble clic devuelve la burbuja a su esquina, tanto en mouse como en táctil.
+  burbuja.addEventListener('dblclick', (evento) => {
+    evento.preventDefault();
+    reiniciarPosicionPira(burbuja);
+  });
+}
+
+/** Pasa la burbuja de `right`/`bottom` a `left`/`top` para poder arrastrarla. */
+function pasarAAbsoluta(burbuja, izquierda, arriba) {
+  burbuja.style.right = 'auto';
+  burbuja.style.bottom = 'auto';
+  burbuja.style.left = `${izquierda}px`;
+  burbuja.style.top = `${arriba}px`;
+}
+
+/**
+ * Coloca la burbuja en un punto, sin dejarla salirse de la pantalla.
+ * El margen es el mismo que el de su esquina, así no queda pegada al borde.
+ */
+function colocarBurbuja(burbuja, izquierda, arriba) {
+  const lado = burbuja.offsetWidth || 60;
+  const margen = 8;
+  const maxIzq = Math.max(margen, window.innerWidth - lado - margen);
+  const maxArriba = Math.max(margen, window.innerHeight - lado - margen);
+  burbuja.style.left = `${Math.min(Math.max(margen, izquierda), maxIzq)}px`;
+  burbuja.style.top = `${Math.min(Math.max(margen, arriba), maxArriba)}px`;
+}
+
+/** Guarda la posición actual para la próxima visita, si el navegador deja. */
+function guardarPosicionPira(burbuja) {
+  try {
+    const caja = burbuja.getBoundingClientRect();
+    localStorage.setItem(CLAVE_POSICION, JSON.stringify({
+      izquierda: Math.round(caja.left),
+      arriba: Math.round(caja.top),
+      ancho: window.innerWidth,
+      alto: window.innerHeight,
+    }));
+  } catch {
+    // Sin almacenamiento (modo privado): la posición simplemente no se recuerda.
+  }
+}
+
+/** Restaura la posición guardada, escalándola si cambió el tamaño de la ventana. */
+function restaurarPosicionPira(burbuja) {
+  let guardada;
+  try {
+    guardada = JSON.parse(localStorage.getItem(CLAVE_POSICION) || 'null');
+  } catch {
+    guardada = null;
+  }
+  if (!guardada || typeof guardada.izquierda !== 'number') return;
+
+  // Si la ventana cambió de tamaño desde la última vez, la posición se
+  // reescala para que la burbuja siga cayendo en el mismo lugar relativo.
+  const escalaX = guardada.ancho ? window.innerWidth / guardada.ancho : 1;
+  const escalaY = guardada.alto ? window.innerHeight / guardada.alto : 1;
+  pasarAAbsoluta(burbuja,
+    guardada.izquierda * escalaX, guardada.arriba * escalaY);
+  colocarBurbuja(burbuja, guardada.izquierda * escalaX, guardada.arriba * escalaY);
+}
+
+/** Devuelve la burbuja a su esquina original y olvida la posición guardada. */
+function reiniciarPosicionPira(burbuja) {
+  burbuja.style.left = '';
+  burbuja.style.top = '';
+  burbuja.style.right = '';
+  burbuja.style.bottom = '';
+  try {
+    localStorage.removeItem(CLAVE_POSICION);
+  } catch {
+    // Nada que limpiar.
+  }
+  // Un gesto corto de confirmación: el pez abre la boca un instante.
+  marcarPiraHablando(true);
+  setTimeout(() => marcarPiraHablando(false), 450);
 }
 
 async function enviarPreguntaPira() {
@@ -2011,19 +2257,25 @@ async function enviarPreguntaPira() {
     estado.conversacion.push({ role: 'assistant', content: r.respuesta });
 
     esperando.remove();
-    agregarBurbuja('assistant', markdownBasico(r.respuesta), r, opciones);
+    // La burbuja se crea vacía y Pira la escribe de a poco: mientras redacta
+    // mantiene la boca abierta, y la cierra recién cuando termina.
+    const respuesta = agregarBurbuja('assistant', '', r, opciones);
+    animarEscritura(respuesta.cuerpo, markdownBasico(r.respuesta), {
+      alEscribir: () => bajarAlFinal(respuesta.contenedor),
+      alTerminar: () => marcarPiraHablando(false),
+    });
     // La pestaña también muestra la conversación: se replica ahí si está
     // montada, para que las dos vistas no se contradigan.
     replicarEnPestana(texto, r);
   } catch (error) {
     esperando.remove();
     agregarFallo(error, opciones);
+    // Sin respuesta no hay animación que cierre la boca.
+    marcarPiraHablando(false);
   } finally {
     piraEnviando = false;
     boton.classList.remove('btn-pending');
     boton.disabled = false;
-    // Terminó de hablar: vuelve a la boca cerrada.
-    marcarPiraHablando(false);
     campo.focus();
   }
 }
@@ -2033,10 +2285,17 @@ function replicarEnPestana(texto, respuesta) {
   const contenedor = $('#asistente-historial');
   if (!contenedor) return;
   agregarBurbuja('user', markdownBasico(texto));
-  agregarBurbuja('assistant', markdownBasico(respuesta), respuesta);
+  const burbuja = agregarBurbuja('assistant', '', respuesta);
+  animarEscritura(burbuja.cuerpo, markdownBasico(respuesta.respuesta), {
+    alEscribir: () => bajarAlFinal(contenedor),
+  });
 }
 
-/** Agrega una burbuja al historial y baja hasta el final. */
+/** Agrega una burbuja al historial y baja hasta el final.
+ *
+ * Devuelve un objeto con las dos partes que hacen falta para animar la
+ * respuesta: el nodo exterior (`caja`) y el interior, donde vive el HTML
+ * (`cuerpo`). Para el usuario se devuelve el mismo nodo en ambos campos. */
 function agregarBurbuja(rol, html, meta = null, opciones = {}) {
   const contenedor = opciones.contenedor || $('#asistente-historial');
   const flotante = opciones.flotante === true;
@@ -2071,7 +2330,116 @@ function agregarBurbuja(rol, html, meta = null, opciones = {}) {
 
   contenedor.appendChild(burbuja);
   bajarAlFinal(contenedor);
-  return burbuja;
+  const cuerpo = esUsuario ? burbuja : burbuja.querySelector('.burbuja-asistente');
+  return { caja: burbuja, cuerpo, contenedor };
+}
+
+// ---------------------------------------------------------------------------
+// Escritura progresiva de las respuestas
+// ---------------------------------------------------------------------------
+//
+// El modelo no transmite el texto: cuando contesta, ya está completo. Para que
+// la respuesta no caiga de golpe, se revela acá palabra por palabra. El ritmo
+// se adapta al largo del texto, así una respuesta corta no se hace esperar y
+// una larga no tarda una eternidad. Mientras escribe, el pez tiene la boca
+// abierta; al terminar, el cursor deja de parpadear.
+
+/** Duración total de la animación según el largo del texto. */
+function duracionEscritura(largo) {
+  if (largo <= 200) return 400;      // respuesta corta: casi instantánea
+  if (largo <= 600) return 900;      // mediana
+  if (largo <= 1400) return 1500;    // larga
+  return 2200;                       // muy larga: se corta acá, no se estira más
+}
+
+/**
+ * Escribe el HTML ya renderizado dentro de la burbuja, palabra por palabra.
+ *
+ * Se anima sobre el HTML **final**: se envuelve cada palabra visible en un
+ * `<span>` que arranca invisible y se va prendiendo de a uno. Así el Markdown
+ * (negritas, listas, tablas) se ve formateado desde el primer instante y las
+ * etiquetas nunca quedan abiertas a la mitad.
+ *
+ * @param {HTMLElement} cuerpo  nodo donde se escribe
+ * @param {string} html         HTML final, ya escapado y renderizado
+ * @param {object} opciones     { alTerminar, alEscribir }
+ */
+function animarEscritura(cuerpo, html, opciones = {}) {
+  const alTerminar = opciones.alTerminar || (() => {});
+  const alEscribir = opciones.alEscribir || (() => {});
+
+  cuerpo.classList.add('cursor-escritura');
+  cuerpo.innerHTML = marcarPalabras(html);
+
+  const palabras = cuerpo.querySelectorAll('.palabra-oculta');
+  const total = palabras.length;
+
+  if (!total) {
+    cuerpo.classList.remove('cursor-escritura');
+    alTerminar();
+    return;
+  }
+
+  const duracion = duracionEscritura(html.length);
+  // Se revela de a un lote: si el texto tiene 300 palabras y hay 900 ms,
+  // conviene prender varias por tick en lugar de una cada 3 ms.
+  const porTick = Math.max(1, Math.ceil(total / (duracion / 40)));
+  let reveladas = 0;
+
+  const paso = () => {
+    for (let i = 0; i < porTick && reveladas < total; i += 1, reveladas += 1) {
+      palabras[reveladas].classList.remove('palabra-oculta');
+    }
+    alEscribir();
+    if (reveladas < total) {
+      setTimeout(paso, 40);
+    } else {
+      cuerpo.classList.remove('cursor-escritura');
+      alTerminar();
+    }
+  };
+  paso();
+}
+
+/**
+ * Envuelve cada palabra visible del HTML en un `<span>` invisible.
+ *
+ * Se camina el HTML carácter por carácter llevando la cuenta de si se está
+ * dentro de una etiqueta (`<...>`). El texto que está fuera de etiquetas se
+ * envuelve palabra por palabra; las etiquetas se copian tal cual. Es lo que
+ * permite animar sin romper el marcado.
+ */
+function marcarPalabras(html) {
+  const salida = [];
+  let texto = '';           // texto acumulado fuera de etiquetas
+  let dentroDeEtiqueta = false;
+
+  const volcarTexto = () => {
+    if (!texto) return;
+    // Se separan las palabras de los espacios para conservar el espaciado.
+    for (const parte of texto.split(/(\s+)/)) {
+      if (!parte) continue;
+      salida.push(/^\s+$/.test(parte)
+        ? parte
+        : `<span class="palabra-oculta">${parte}</span>`);
+    }
+    texto = '';
+  };
+
+  for (const caracter of html) {
+    if (caracter === '<') {
+      volcarTexto();
+      dentroDeEtiqueta = true;
+    }
+    if (dentroDeEtiqueta) {
+      salida.push(caracter);
+      if (caracter === '>') dentroDeEtiqueta = false;
+    } else {
+      texto += caracter;
+    }
+  }
+  volcarTexto();
+  return salida.join('');
 }
 
 /** Indicador mientras el proveedor responde. Se quita al llegar la respuesta. */

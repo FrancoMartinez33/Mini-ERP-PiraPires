@@ -448,6 +448,11 @@
       from { opacity: 0; transform: translateY(6px) scale(0.98); }
       to   { opacity: 1; transform: none; }
     }
+    /* El cursor que parpadea al final de la respuesta mientras se escribe. */
+    @keyframes parpadear {
+      0%, 45%   { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
 
     /* ---------------- Toast ----------------
        Flotante: blanco, borde gray-200, sombra lg, acento izquierdo de
@@ -471,20 +476,36 @@
        El panel se ancla con `fixed` y no empuja el diseño, así que se puede
        abrir desde cualquier vista sin perder el contexto.
        z-70 queda por encima de los avisos (z-60) y del diálogo (z-50). */
+    /* La burbuja se arrastra: `touch-none` evita que el navegador del celular
+       interprete el gesto como un scroll y se quede con el movimiento.
+       Al arrastrarla pasa a `absolute` (con `left`/`top` en píxeles); mientras
+       está en su esquina sigue siendo `fixed`, para no depender del scroll. */
     .asistente-burbuja {
-      @apply fixed right-4 bottom-4 z-70 grid size-14 place-items-center
-             overflow-hidden rounded-full border-2 border-white bg-white
-             shadow-float transition-transform duration-150
-             hover:scale-105 focus-visible:outline-none sm:right-6 sm:bottom-6;
+      @apply fixed right-4 bottom-4 z-70 grid size-[60px] cursor-grab touch-none
+             place-items-center overflow-hidden rounded-full border-2 border-white
+             bg-white shadow-float transition-transform duration-150
+             hover:scale-105 focus-visible:outline-none active:cursor-grabbing
+             sm:right-6 sm:bottom-6;
     }
-    .asistente-burbuja img { @apply size-full object-cover; }
+    .asistente-burbuja.arrastrando {
+      @apply scale-110 transition-none;
+    }
+    .asistente-burbuja img {
+      @apply size-full object-cover;
+      /* La imagen no debe robar el gesto de arrastre: los eventos de puntero
+         tienen que llegar al botón. */
+      -webkit-user-drag: none;
+      user-select: none;
+      pointer-events: none;
+    }
 
     .asistente-panel {
-      @apply fixed right-4 bottom-4 z-70 flex max-h-[min(640px,calc(100vh-2rem))]
-             w-[min(26rem,calc(100vw-2rem))] flex-col overflow-hidden
+      @apply fixed right-4 bottom-4 z-70 flex h-[min(36rem,calc(100vh-2rem))]
+             w-[min(30rem,calc(100vw-2rem))] flex-col overflow-hidden
              rounded-modal border border-surface-200 bg-white shadow-float
              sm:right-6 sm:bottom-6;
       animation: aparecer 150ms ease-out;
+      transition: left 200ms ease-out, top 200ms ease-out;
     }
     .asistente-panel-cabecera {
       @apply flex items-center gap-3 border-b border-surface-200 bg-primary-600
@@ -507,6 +528,20 @@
     .burbuja-error {
       @apply mr-auto rounded-tl-none border border-danger-200 bg-danger-50 text-danger-700;
     }
+    /* Cursor de escritura: va pegado al último carácter mientras el texto se
+       revela, y desaparece cuando la respuesta termina de aparecer. */
+    .cursor-escritura::after {
+      content: '';
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      background: currentColor;
+      animation: parpadear 1s step-end infinite;
+    }
+    /* Palabra todavía no revelada por la animación de escritura. */
+    .palabra-oculta { visibility: hidden; }
 
     /* ---------------- Misceláneos ---------------- */
     .spinner {
@@ -1147,10 +1182,10 @@
      ===================================================================== -->
 <button id="pira-burbuja" type="button"
         class="asistente-burbuja no-imprimir"
-        aria-label="Abrir el asistente Pira Pires"
+        aria-label="Abrir el asistente Pira Pires. Se puede arrastrar para moverlo; doble clic lo devuelve a su lugar."
         aria-controls="pira-panel" aria-expanded="false">
   <img id="pira-burbuja-imagen" src="img/pescadobocacerrada-avatar.png"
-       alt="Pira Pires, asistente contable">
+       alt="" aria-hidden="true">
 </button>
 
 <section id="pira-panel" class="asistente-panel no-imprimir oculto"

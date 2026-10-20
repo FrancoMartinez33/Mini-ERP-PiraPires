@@ -116,9 +116,18 @@ Se abre de dos maneras, con la misma conversación compartida:
 * desde la **burbuja flotante** de la esquina inferior derecha, que despliega
   un panel de chat sobre la vista en la que se está trabajando.
 
+La burbuja es un círculo de **60 px** (el tamaño de la de Messenger) y se
+**puede arrastrar** a cualquier lugar de la pantalla, como la de Messenger:
+se agarra con el mouse o el dedo y queda donde se suelta, siempre dentro de la
+ventana. La posición se recuerda entre visitas. Para devolverla a su esquina
+alcanza con hacerle **doble clic** (o **mantener presionado** en el celular).
+Un toque sin movimiento abre o cierra el chat; un arrastre, no: los dos gestos
+se distinguen por cuánto se movió el puntero.
+
 La foto del asistente es un pez: **boca cerrada** cuando escucha y **boca
-abierta** mientras redacta la respuesta. Al tocar la burbuja, el pez saluda
-abriendo la boca un instante.
+abierta** mientras redacta. Las respuestas no aparecen de golpe: se **escriben
+palabra por palabra** con un cursor que parpadea, al ritmo del largo del texto.
+El pez mantiene la boca abierta mientras escribe y la cierra al terminar.
 
 
 ---
