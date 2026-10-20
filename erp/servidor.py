@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from . import asistente
 from . import balance as modulo_balance
 from . import base_datos
 from . import libro_diario
@@ -88,6 +89,10 @@ RUTAS: list[tuple[str, re.Pattern, str]] = [
 
     # -- Controles (sección 18) ------------------------------------------
     ("GET",    r"^/api/controles$",                              "controles_listar"),
+
+    # -- Asistente virtual (Groq con respaldo en Gemini) -----------------
+    ("GET",    r"^/api/asistente/configuracion$",                "asistente_configuracion"),
+    ("POST",   r"^/api/asistente$",                              "asistente_preguntar"),
 
     # -- Utilidades -------------------------------------------------------
     ("POST",   r"^/api/datos-demo$",                              "datos_demo"),
@@ -524,6 +529,28 @@ class Manejador(BaseHTTPRequestHandler):
                 "cruce": cruce,
             }
         )
+
+    # ------------------------------------------------------------------
+    # Manejadores: Asistente virtual
+    # ------------------------------------------------------------------
+
+    def _manejar_asistente_configuracion(self, _: dict) -> None:
+        """Estado de los proveedores, para informarlo en la interfaz."""
+        self._enviar_json(
+            {
+                "configurado": asistente.esta_configurado(),
+                "proveedores": asistente.proveedores_disponibles(),
+                "instruccion": asistente.INSTRUCCION_SISTEMA,
+            }
+        )
+
+    def _manejar_asistente_preguntar(self, _: dict) -> None:
+        cuerpo = self._leer_cuerpo()
+        resultado = asistente.preguntar(
+            cuerpo.get("pregunta", ""),
+            cuerpo.get("historial"),
+        )
+        self._enviar_json(resultado)
 
     def _manejar_datos_demo(self, _: dict) -> None:
         from . import datos_demo

@@ -7,6 +7,14 @@ datos/
 *.sqlite
 *.sqlite3
 
+# -----------------------------------------------------------------------------
+# Secretos: las claves de API del asistente nunca van al repositorio.
+# Si se filtran, hay que rotarlas desde el panel de cada proveedor.
+# -----------------------------------------------------------------------------
+claves.env
+.env
+*.key
+
 # Bytecode de Python
 __pycache__/
 *.py[cod]

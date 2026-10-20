@@ -14,6 +14,10 @@ Uso:
 
 No requiere instalar nada: sólo la biblioteca estándar de Python 3.
 
+El asistente virtual (Groq con respaldo en Gemini) lee sus claves de las
+variables de entorno, o en su defecto del archivo local `claves.env`
+(ignorado por git; plantilla en `claves.env.example`).
+
 En un hosting que inyecta las variables de entorno `HOST` y `PORT` —como
 Render— los valores por defecto pasan a ser esos, así que alcanza con
 `python3 main.py --auto-sembrar`.
@@ -25,9 +29,45 @@ import argparse
 import os
 import sys
 import webbrowser
+from pathlib import Path
 
 from erp import base_datos, datos_demo
 from erp.dinero import formato_monto
+
+
+#: Archivo local con las claves de API del asistente. Se ignora en git.
+ARCHIVO_CLAVES = Path(__file__).resolve().parent / "claves.env"
+
+#: Claves que pueden declararse en ese archivo.
+CLAVES_ASISTENTE = ("GROQ_API_KEY", "GEMINI_API_KEY")
+
+
+def cargar_claves(ruta: Path | None = None) -> list[str]:
+    """
+    Carga las claves del asistente desde `claves.env` (formato
+    ``CLAVE=valor``, una por línea, ``#`` para comentarios).
+
+    Las variables ya presentes en el entorno **no** se pisan: así en un
+    hosting mandan las variables del sistema y el archivo local sirve para
+    desarrollar en la máquina propia. Devuelve las claves que quedaron
+    definidas.
+    """
+    archivo = ruta or ARCHIVO_CLAVES
+    if not archivo.is_file():
+        return []
+
+    definidas: list[str] = []
+    for linea in archivo.read_text(encoding="utf-8").splitlines():
+        texto = linea.strip()
+        if not texto or texto.startswith("#") or "=" not in texto:
+            continue
+        clave, _, valor = texto.partition("=")
+        clave = clave.strip()
+        valor = valor.strip().strip('"').strip("'")
+        if clave in CLAVES_ASISTENTE and valor and clave not in os.environ:
+            os.environ[clave] = valor
+            definidas.append(clave)
+    return definidas
 
 
 def _crear_parser() -> argparse.ArgumentParser:
@@ -74,6 +114,7 @@ def _crear_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    cargar_claves()
     argumentos = _crear_parser().parse_args()
 
     # -- Modo consola: una consulta SQL de lectura ------------------------
@@ -145,6 +186,15 @@ def main() -> int:
         print("  Datos de prueba: cargados (la base estaba vacía)")
     print("  Flujo: Plan de cuentas → Libro Diario → Libro Mayor → Balance")
     print("  Para demostrar, usá el botón «Cargar datos de prueba» en el Panel.")
+    hay_claves = any(os.environ.get(c, "").strip() for c in CLAVES_ASISTENTE)
+    print(
+        "  Asistente IA  : "
+        + (
+            "activo — Groq con respaldo en Gemini"
+            if hay_claves
+            else "no configurado (completá claves.env o exportá GROQ_API_KEY)"
+        )
+    )
     print("  Detener el servidor: Ctrl+C")
     if os.environ.get("RENDER"):
         # Aviso real: en el plan gratuito de Render el sistema de archivos

@@ -105,6 +105,8 @@ const estado = {
   asientoEditando: null,
   lineas: [],           // líneas del asiento en edición
   cuentaEditando: null,
+  conversacion: [],     // historial enviado al asistente {role, content}
+  asistenteListo: false, // la configuración ya se consultó
 };
 
 // ============================================================================
@@ -176,7 +178,8 @@ function avisarError(error) {
 // Navegación entre vistas
 // ============================================================================
 
-const VISTAS = ['panel', 'cuentas', 'diario', 'mayor', 'balance', 'controles'];
+const VISTAS = ['panel', 'cuentas', 'diario', 'mayor', 'balance', 'controles',
+                'asistente'];
 
 /** Carga los datos de la vista indicada la primera vez que se muestra. */
 function refrescarVista(vista) {
@@ -191,6 +194,7 @@ function refrescarVista(vista) {
   if (vista === 'mayor') { cargarCuentas(); cargarMayor(); }
   if (vista === 'balance') cargarBalance();
   if (vista === 'controles') cargarControles();
+  if (vista === 'asistente') cargarAsistente();
 }
 
 /**
@@ -203,7 +207,8 @@ function irA(vista, moverFoco = false) {
   estado.vista = vista;
   navegacion.irA(vista, moverFoco);
   window.scrollTo({ top: 0, behavior: moverFoco ? 'auto' : 'smooth' });
-  refrescarVista(vista);
+  // Los datos los pide `seleccionar`: así el clic sobre la pestaña y esta
+  // función terminan en un único punto de carga, sin pedir todo dos veces.
 }
 
 /** Objeto de navegación, lo crea iniciar(). */
@@ -216,9 +221,17 @@ let navegacion = { irA: () => {} };
 async function iniciar() {
   // Los dos menús (lateral y móvil) controlan los mismos paneles y quedan
   // sincronizados: con las flechas se recorren dentro de cada menú.
+  // Al elegir una pestaña (con el mouse o con las flechas) se cargan sus datos:
+  // antes el cambio de vista solo guardaba el estado y el panel quedaba vacío.
+  // `listo` evita que la llamada inicial de conectarTabsSincronizados pida
+  // datos antes de que estén cargados la empresa y el plan de cuentas.
+  let listo = false;
   navegacion = UI.conectarTabsSincronizados({
     grupos: [$$('#menu [role="tab"]'), $$('#menu-movil [role="tab"]')],
-    seleccionar: (vista) => { estado.vista = vista; },
+    seleccionar: (vista) => {
+      estado.vista = vista;
+      if (listo) refrescarVista(vista);
+    },
   });
 
   $('#btn-refrescar').onclick = () => refrescarVista(estado.vista);
@@ -227,6 +240,7 @@ async function iniciar() {
 
   await cargarEmpresa();
   await cargarCuentas();
+  listo = true;
   irA('panel');
 }
 
@@ -1508,6 +1522,271 @@ async function cargarControles() {
   } catch (error) {
     avisarError(error);
   }
+}
+
+// ============================================================================
+// Vista: Asistente virtual (Groq con respaldo en Gemini)
+// ============================================================================
+
+/** Evita envíos superpuestos mientras el proveedor responde. */
+let asistenteEnviando = false;
+
+/**
+ * Consulta la configuración de los proveedores y deja el formulario listo.
+ * Se hace una sola vez: la interfaz muestra después si Groq y Gemini están
+ * activos, para que el usuario sepa por qué una respuesta puede demorar.
+ */
+async function cargarAsistente() {
+  if (!estado.asistenteListo) {
+    try {
+      pintarEstadoAsistente(await api('/api/asistente/configuracion'));
+      estado.asistenteListo = true;
+    } catch (error) {
+      avisarError(error);
+      return;
+    }
+  }
+
+  $('#asistente-formulario').onsubmit = (evento) => {
+    evento.preventDefault();
+    enviarPregunta();
+  };
+}
+
+function pintarEstadoAsistente(cfg) {
+  const contenedor = $('#asistente-estado');
+  if (!contenedor) return;
+
+  if (!cfg.configurado) {
+    contenedor.innerHTML = UI.badge('sin claves de API', {
+      variant: 'warning', iconName: 'alerta',
+    });
+    return;
+  }
+  const activos = cfg.proveedores.filter((p) => p.configurado).map((p) => p.nombre);
+  contenedor.innerHTML = UI.badge(`activo · ${activos.join(' + ')}`, {
+    variant: 'success', iconName: 'cheque',
+  });
+}
+
+async function enviarPregunta() {
+  const campo = $('#asistente-pregunta');
+  const boton = $('#asistente-enviar');
+  const texto = (campo.value || '').trim();
+  if (!texto || asistenteEnviando) return;
+
+  asistenteEnviando = true;
+  boton.classList.add('btn-pending');
+  boton.setAttribute('aria-busy', 'true');
+  boton.disabled = true;
+
+  agregarBurbuja('user', markdownBasico(texto));
+  campo.value = '';
+  const esperando = agregarPensando();
+
+  try {
+    const r = await api('/api/asistente', {
+      method: 'POST',
+      // Se manda el historial sin el mensaje actual: el servidor lo agrega.
+      body: { pregunta: texto, historial: estado.conversacion },
+    });
+
+    estado.conversacion.push({ role: 'user', content: texto });
+    estado.conversacion.push({ role: 'assistant', content: r.respuesta });
+
+    esperando.remove();
+    agregarBurbuja('assistant', markdownBasico(r.respuesta), r);
+  } catch (error) {
+    esperando.remove();
+    agregarFallo(error);
+    // El mensaje del usuario no queda en el historial si nadie respondió:
+    // de lo contrario la conversación se desincroniza con el servidor.
+  } finally {
+    asistenteEnviando = false;
+    boton.classList.remove('btn-pending');
+    boton.removeAttribute('aria-busy');
+    boton.disabled = false;
+    campo.focus();
+  }
+}
+
+/** Agrega una burbuja al historial y baja hasta el final. */
+function agregarBurbuja(rol, html, meta = null) {
+  const contenedor = $('#asistente-historial');
+  const esUsuario = rol === 'user';
+
+  const insignia = meta
+    ? UI.badge(`${meta.proveedor} · ${(meta.tiempo_ms / 1000).toFixed(1)} s`, {
+        variant: meta.proveedor === 'groq' ? 'primary' : 'secondary',
+      })
+    : '';
+
+  const burbuja = document.createElement('div');
+  burbuja.className = 'flex items-start gap-3' + (esUsuario ? ' justify-end' : '');
+  burbuja.innerHTML = esUsuario
+    ? `<div class="max-w-[85%] rounded-lg rounded-tr-none bg-primary-600
+                  px-3.5 py-2.5 text-sm leading-relaxed text-white">${html}</div>`
+    : `<div class="grid size-8 shrink-0 place-items-center rounded-full
+                  bg-primary-50 text-sm font-bold text-primary-600">P</div>
+       <div class="min-w-0 max-w-[85%]">
+         <div class="rounded-lg rounded-tl-none border border-surface-200
+                     bg-surface-50 px-3.5 py-2.5 text-sm leading-relaxed
+                     text-surface-800">${html}</div>
+         ${insignia ? `<div class="mt-1.5">${insignia}</div>` : ''}
+       </div>`;
+
+  contenedor.appendChild(burbuja);
+  bajarAlFinal(contenedor);
+  return burbuja;
+}
+
+/** Indicador mientras el proveedor responde. Se quita al llegar la respuesta. */
+function agregarPensando() {
+  const contenedor = $('#asistente-historial');
+  const caja = document.createElement('div');
+  caja.className = 'flex items-start gap-3';
+  caja.innerHTML = `
+    <div class="grid size-8 shrink-0 place-items-center rounded-full
+                bg-primary-50 text-sm font-bold text-primary-600">P</div>
+    <div class="flex items-center gap-1.5 rounded-lg rounded-tl-none border
+                border-surface-200 bg-surface-50 px-3.5 py-3">
+      <span class="skeleton size-2"></span>
+      <span class="skeleton size-2"></span>
+      <span class="skeleton size-2"></span>
+      <span class="ml-1 text-xs text-surface-500">Consultando a Groq…</span>
+    </div>`;
+  contenedor.appendChild(caja);
+  bajarAlFinal(contenedor);
+  return caja;
+}
+
+/** Falla del asistente: aviso en pantalla y en el historial. */
+function agregarFallo(error) {
+  avisarError(error);
+  const contenedor = $('#asistente-historial');
+  const caja = document.createElement('div');
+  caja.className = 'flex items-start gap-3';
+  const mensaje = error?.mensaje || 'No se pudo obtener respuesta.';
+  caja.innerHTML = `
+    <div class="grid size-8 shrink-0 place-items-center rounded-full
+                bg-warning-50 text-sm font-bold text-warning-600">!</div>
+    <div class="min-w-0 max-w-[85%] rounded-lg rounded-tl-none border
+                border-warning-200 bg-warning-50 px-3.5 py-2.5 text-sm
+                text-warning-700">
+      <strong>No pude responder.</strong> ${esc(mensaje)}
+    </div>`;
+  contenedor.appendChild(caja);
+  bajarAlFinal(contenedor);
+}
+
+function bajarAlFinal(contenedor) {
+  contenedor.scrollTop = contenedor.scrollHeight;
+}
+
+/**
+ * Renderizador mínimo y seguro de Markdown para las respuestas del modelo.
+ *
+ * El texto se escapa **primero** y sólo después se reconocen los marcados;
+ * así ningún contenido del modelo puede inyectar HTML en la página.
+ * Soporta: negritas, cursivas, código, títulos, listas, tablas y separadores.
+ */
+function markdownBasico(texto) {
+  const lineas = esc(texto).replace(/\r/g, '').split('\n');
+  const salida = [];
+  let lista = null;    // 'ul' | 'ol' | null
+  let tabla = false;
+  let esCabecera = false;
+
+  const cerrarLista = () => {
+    if (lista) { salida.push(lista === 'ul' ? '</ul>' : '</ol>'); lista = null; }
+  };
+  const cerrarTabla = () => {
+    if (tabla) { salida.push('</tbody></table></div>'); tabla = false; }
+  };
+  const cerrarTodo = () => { cerrarLista(); cerrarTabla(); };
+
+  const enLinea = (t) => t
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/`([^`]+)`/g, '<code class="codigo">$1</code>');
+
+  for (const cruda of lineas) {
+    const l = cruda.trim();
+
+    if (!l) { cerrarTodo(); continue; }
+    if (/^(-{3,}|={3,})$/.test(l)) {
+      cerrarTodo();
+      salida.push('<hr class="my-3 border-surface-200">');
+      continue;
+    }
+
+    // --- Tabla: fila que empieza y termina con | -----------------------
+    if (l.startsWith('|')) {
+      if (/^\|[\s:|-]+\|$/.test(l)) continue;      // fila separadora de columnas
+      const celdas = l.replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|').map((c) => c.trim());
+      if (!tabla) {
+        // La primera fila es el encabezado: va en <thead> para que los
+        // lectores de pantalla la anuncien como cabecera de columna.
+        cerrarLista();
+        salida.push('<div class="scroll-area overflow-x-auto">'
+          + '<table class="table"><thead>');
+        tabla = true;
+        esCabecera = true;
+      }
+      if (esCabecera) {
+        salida.push(`<tr>${celdas
+          .map((c) => `<th class="text-xs font-semibold text-surface-500">`
+            + `${enLinea(c)}</th>`)
+          .join('')}</tr></thead><tbody>`);
+        esCabecera = false;
+      } else {
+        salida.push(`<tr>${celdas
+          .map((c) => `<td>${enLinea(c)}</td>`)
+          .join('')}</tr>`);
+      }
+      continue;
+    }
+    cerrarTabla();
+
+    // --- Título --------------------------------------------------------
+    const encabezado = l.match(/^(#{1,6})\s+(.*)$/);
+    if (encabezado) {
+      cerrarTodo();
+      const tamano = encabezado[1].length <= 2 ? 'text-sm' : 'text-xs';
+      salida.push(
+        `<p class="${tamano} font-semibold text-surface-900 mt-1">`
+        + `${enLinea(encabezado[2])}</p>`
+      );
+      continue;
+    }
+
+    // --- Listas --------------------------------------------------------
+    const vineta = l.match(/^[-*]\s+(.*)$/);
+    const numerada = l.match(/^\d+[.)]\s+(.*)$/);
+    if (vineta || numerada) {
+      cerrarTabla();
+      const deseada = vineta ? 'ul' : 'ol';
+      if (lista !== deseada) {
+        cerrarLista();
+        salida.push(deseada === 'ul'
+          ? '<ul class="list-disc space-y-1 pl-5">'
+          : '<ol class="list-decimal space-y-1 pl-5">');
+        lista = deseada;
+      }
+      const contenido = (vineta ? vineta[1] : numerada[1]);
+      salida.push(`<li>${enLinea(contenido)}</li>`);
+      continue;
+    }
+
+    // --- Párrafo -------------------------------------------------------
+    cerrarTodo();
+    salida.push(`<p class="py-0.5">${enLinea(l)}</p>`);
+  }
+
+  cerrarTodo();
+  return salida.join('');
 }
 
 // ============================================================================

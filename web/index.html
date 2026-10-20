@@ -552,6 +552,9 @@
       <button class="tab" role="tab" id="tab-controles" data-vista="controles" aria-controls="vista-controles">
         <span class="tab-icon">6</span> Controles y reglas
       </button>
+      <button class="tab" role="tab" id="tab-asistente" data-vista="asistente" aria-controls="vista-asistente">
+        <span class="tab-icon">?</span> Asistente
+      </button>
     </nav>
 
     <div class="border-t border-surface-200 p-4">
@@ -607,6 +610,7 @@
         <button class="tab-movil" role="tab" id="tabm-mayor" data-vista="mayor" aria-controls="vista-mayor">Libro Mayor</button>
         <button class="tab-movil" role="tab" id="tabm-balance" data-vista="balance" aria-controls="vista-balance">Balance</button>
         <button class="tab-movil" role="tab" id="tabm-controles" data-vista="controles" aria-controls="vista-controles">Controles</button>
+        <button class="tab-movil" role="tab" id="tabm-asistente" data-vista="asistente" aria-controls="vista-asistente">Asistente</button>
       </div>
     </header>
 
@@ -888,6 +892,55 @@
             <code class="codigo">partida</code>. No existe ninguna tabla para el Libro Mayor ni
             para el Balance: por eso es imposible cargarlos a mano, siempre se calculan a partir
             de los asientos confirmados del Libro Diario.
+          </div>
+        </div>
+      </section>
+
+      <!-- ===============================================================
+           ASISTENTE VIRTUAL (Groq con respaldo en Gemini)
+           =============================================================== -->
+      <section id="vista-asistente" role="tabpanel" aria-labelledby="tab-asistente"
+               class="vista oculto">
+        <div class="card">
+          <div class="card-header flex-wrap gap-2">
+            <div>
+              <h2 class="card-title">Pira Pires · Asistente contable</h2>
+              <p class="card-subtitle">
+                Orientación con la legislación vigente de Paraguay · Groq como motor
+                principal y Gemini como respaldo automático
+              </p>
+            </div>
+            <div id="asistente-estado" class="ml-auto"></div>
+          </div>
+
+          <div id="asistente-historial"
+               class="scroll-area flex max-h-[65vh] min-h-80 flex-col gap-3
+                      overflow-y-auto border-b border-surface-200 p-4 sm:p-6">
+            <div class="flex items-start gap-3">
+              <div class="grid size-8 shrink-0 place-items-center rounded-full
+                          bg-primary-50 text-sm font-bold text-primary-600">P</div>
+              <div class="min-w-0 rounded-lg rounded-tl-none border border-surface-200
+                          bg-surface-50 px-3.5 py-2.5 text-sm leading-relaxed text-surface-700">
+                Hola, soy Pira Pires. Preguntame sobre contabilidad, impuestos o el uso
+                del sistema. Respondo solo con normativa paraguaya vigente.
+              </div>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <form id="asistente-formulario" class="flex flex-wrap gap-2" novalidate>
+              <label class="sr-only" for="asistente-pregunta">Pregunta para el asistente</label>
+              <input id="asistente-pregunta" type="text" autocomplete="off"
+                     class="input min-w-0 flex-1"
+                     placeholder="Ej.: ¿Cómo registro una compra a crédito con IVA?">
+              <button id="asistente-enviar" type="submit" class="btn btn-md btn-primary-fill">
+                Preguntar
+              </button>
+            </form>
+            <p class="help-text">
+              El asistente puede equivocarse: verificá los montos y las fechas antes de
+              aplicarlos. No reemplaza la firma de un contador público matriculado.
+            </p>
           </div>
         </div>
       </section>

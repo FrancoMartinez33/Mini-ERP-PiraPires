@@ -224,7 +224,7 @@ const UI = (() => {
           ${escapar(label)}${isRequired ? ' <span class="required-mark" aria-hidden="true">*</span>' : ''}
         </label>
         ${control}
-        ${description ? `<p class="help-text" id="${id}-help">${descripcion}</p>` : ''}
+        ${description ? `<p class="help-text" id="${id}-help">${escapar(description)}</p>` : ''}
         ${errorMessage ? `<p class="error-text" id="${idError}" role="alert">${escapar(errorMessage)}</p>` : ''}
       </div>`;
   }
