@@ -31,10 +31,15 @@ from __future__ import annotations
 from . import base_datos, libro_diario, plan_de_cuentas
 from .dinero import formato_monto
 
-#: Empresa ficticia de la sección 19.
+#: Datos de la empresa que acompañan a los movimientos de prueba.
+#:
+#: El **nombre va vacío a propósito**: en pantalla lo pone el usuario que entró
+#: desde el inicio de sesión, así los datos de prueba no le imponen una razón
+#: social ficticia. El CUIT, la actividad y el ejercicio sí sirven de ejemplo,
+#: para que el panel no arranque sin contexto.
 EMPRESA = {
-    "nombre": "Distribuidora del Sur S.R.L.",
-    "cuit": "80012345-7",
+    "nombre": "",
+    "cuit": "",
     "actividad": "Comercio mayorista de mercaderías",
     "ejercicio_inicio": "2026-01-01",
     "ejercicio_fin": "2026-12-31",

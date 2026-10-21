@@ -348,7 +348,12 @@ async function cargarEmpresa() {
   try {
     estado.empresa = await api('/api/empresa');
     estado.moneda = estado.empresa.moneda || 'G.';
-    $('#empresa-nombre').textContent = estado.empresa.nombre;
+    // El nombre que se muestra es el del usuario que entró: es una prueba de
+    // un solo usuario, y así el sistema queda «a nombre» de quien lo usa. Los
+    // demás datos de la empresa (CUIT, actividad, ejercicio) siguen siendo los
+    // que estén guardados.
+    const usuario = nombreDeSesion();
+    $('#empresa-nombre').textContent = usuario || estado.empresa.nombre || 'Mi empresa';
     $('#empresa-detalle').textContent = [
       estado.empresa.cuit && `CUIT ${estado.empresa.cuit}`,
       estado.empresa.actividad,
@@ -367,6 +372,10 @@ async function cargarEmpresa() {
 }
 
 function pintarFormularioEmpresa() {
+  // El nombre lo pone el usuario que entró: el campo se muestra con ese valor
+  // y no se deja editar a mano, para que la barra superior y el formulario no
+  // se contradigan. Al guardar, se manda igual, así queda consistente.
+  const usuario = nombreDeSesion();
   const campos = [
     ['nombre', 'Nombre o razón social', 'text'],
     ['cuit', 'CUIT / RUC', 'text'],
@@ -375,13 +384,19 @@ function pintarFormularioEmpresa() {
     ['ejercicio_fin', 'Fin del ejercicio', 'date'],
     ['moneda', 'Símbolo de moneda', 'text'],
   ];
-  $('#form-empresa').innerHTML = campos.map(([clave, etiqueta, tipo]) =>
-    UI.campoHTML({
+  $('#form-empresa').innerHTML = campos.map(([clave, etiqueta, tipo]) => {
+    const valor = clave === 'nombre' && usuario
+      ? usuario
+      : (estado.empresa?.[clave] ?? '');
+    return UI.campoHTML({
       id: `emp-${clave}`,
       label: etiqueta,
-      control: UI.inputHTML({ id: `emp-${clave}`, name: clave, type: tipo, value: estado.empresa?.[clave] ?? '' }),
-    })
-  ).join('')
+      control: UI.inputHTML({
+        id: `emp-${clave}`, name: clave, type: tipo, value: valor,
+        disabled: Boolean(clave === 'nombre' && usuario),
+      }),
+    });
+  }).join('')
     + UI.botonHTML({
       label: 'Guardar datos de la empresa',
       attributes: 'type="submit"',
@@ -397,11 +412,13 @@ function pintarFormularioEmpresa() {
     boton.setAttribute('aria-busy', 'true');
     try {
       const datos = Object.fromEntries(new FormData(evento.target).entries());
+      if (usuario) datos.nombre = usuario;
       estado.empresa = await api('/api/empresa', { method: 'PUT', body: datos });
       estado.moneda = estado.empresa.moneda || 'G.';
       avisar('Datos de la empresa actualizados.', 'success');
       await cargarPanel();
-      $('#empresa-nombre').textContent = estado.empresa.nombre;
+      // Se vuelve a pintar con el nombre del usuario, no con el de la base.
+      $('#empresa-nombre').textContent = usuario || estado.empresa.nombre;
       $('#empresa-detalle').textContent = [
         estado.empresa.cuit && `CUIT ${estado.empresa.cuit}`,
         estado.empresa.actividad,
@@ -2887,6 +2904,15 @@ function haySesion() {
     return Boolean(sessionStorage.getItem(CLAVE_SESION));
   } catch {
     return false;
+  }
+}
+
+/** Nombre del usuario que entró, o cadena vacía si todavía no hay sesión. */
+function nombreDeSesion() {
+  try {
+    return String(sessionStorage.getItem(CLAVE_SESION) || '').trim();
+  } catch {
+    return '';
   }
 }
 

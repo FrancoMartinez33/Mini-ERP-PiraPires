@@ -182,13 +182,20 @@ def reiniciar(ruta: str | Path | None = None) -> Path:
 
 
 def empresa_por_defecto() -> dict:
-    """Datos de la empresa ficticia si aún no se cargó ninguna."""
+    """
+    Datos de la empresa cuando todavía no se cargó ninguna.
+
+    Arranca **vacía a propósito**: el usuario que entra le pone su nombre desde
+    el inicio de sesión, y el resto de los datos (CUIT, actividad, ejercicio)
+    los completa en el formulario de la empresa. Antes traía los datos de una
+    empresa ficticia, que se veían como si fueran reales.
+    """
     return {
-        "nombre": "Distribuidora del Sur S.R.L.",
-        "cuit": "80012345-7",
-        "actividad": "Comercio mayorista de mercaderías",
-        "ejercicio_inicio": "2026-01-01",
-        "ejercicio_fin": "2026-12-31",
+        "nombre": "",
+        "cuit": "",
+        "actividad": "",
+        "ejercicio_inicio": "",
+        "ejercicio_fin": "",
         "moneda": "G.",
     }
 

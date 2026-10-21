@@ -295,8 +295,10 @@ Los seis se pueden ver en vivo en la vista **Controles** de la aplicación.
 
 ## Evidencia de funcionamiento
 
-Empresa ficticia de la sección 19: **Distribuidora del Sur S.R.L.**,
-comercio mayorista de mercaderías, abril de 2026.
+Datos de prueba de la sección 19: comercio mayorista de mercaderías, abril de
+2026. La razón social no viene precargada: la toma el **usuario que entra**
+(por ejemplo «Franco»), y el CUIT, la actividad y el ejercicio quedan editables
+desde el formulario de la empresa.
 
 ### 1. Plan de cuentas (sección 13)
 
