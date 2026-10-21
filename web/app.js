@@ -236,6 +236,10 @@ async function iniciar() {
     grupos: [$$('#menu [role="tab"]'), $$('#menu-movil [role="tab"]')],
     seleccionar: (vista) => {
       estado.vista = vista;
+      // En la pestaña del asistente la burbuja flotante sobra: está el mismo
+      // chat a pantalla completa. Se esconde para no tapar el contenido y
+      // vuelve sola al salir de esa pestaña.
+      actualizarBurbujaSegunVista(vista);
       if (listo) refrescarVista(vista);
     },
   });
@@ -1995,6 +1999,8 @@ async function enviarPregunta() {
 
 /** ¿Está abierto el panel del asistente flotante? */
 let piraAbierto = false;
+/** ¿El usuario quitó la burbuja con el botón de basura? Entonces no vuelve. */
+let piraEliminada = false;
 /** Evita mandar dos preguntas a la vez desde la burbuja. */
 let piraEnviando = false;
 
@@ -2035,7 +2041,11 @@ function alternarPira(abrir) {
  * el panel se ancla arriba o al costado según dónde haya quedado.
  */
 function ubicarPanelJuntoAburbuja() {
-  const burbuja = $('#pira-burbuja');
+  // La posición de arrastre vive en el **envoltorio**, no en el botón: es el
+  // envoltorio el que se mueve y el que lleva `left`/`top`. Si se leyera el
+  // botón, su `style.left` siempre estaría vacío y el panel se abriría en la
+  // esquina aunque la burbuja estuviera en otro lado.
+  const burbuja = $('#pira-envoltorio') || $('#pira-burbuja');
   const panel = $('#pira-panel');
   if (!burbuja || !panel) return;
 
@@ -2097,6 +2107,8 @@ const CLAVE_POSICION = 'pira-posicion';
 const UMBRAL_ARRASTRE = 6;
 /** Cuánto hay que mantener presionado, en móvil, para reiniciar la posición. */
 const ESPERA_MANTENER = 650;
+/** Ventana para reconocer un doble clic sobre la burbuja (en milisegundos). */
+const ESPERA_DOBLE_CLIC = 350;
 
 async function cargarPiraFlotante() {
   const burbuja = $('#pira-burbuja');
@@ -2180,6 +2192,8 @@ function eliminarPira() {
   const burbuja = $('#pira-burbuja');
   if (envoltorio) envoltorio.classList.add('oculto');
   if (burbuja) burbuja.classList.add('oculto');
+  // Queda marcada como eliminada: así no reaparece al cambiar de pestaña.
+  piraEliminada = true;
 
   try {
     localStorage.removeItem(CLAVE_POSICION);
@@ -2188,6 +2202,26 @@ function eliminarPira() {
   }
   avisar('Se quitó la burbuja de Pira Pires. Recargá la página para traerla de vuelta.',
     'info');
+}
+
+/**
+ * Muestra u oculta la burbuja flotante según la vista activa.
+ *
+ * En la pestaña **Asistente** la burbuja sobra —ahí está el mismo chat, a
+ * pantalla completa— y encima tapa el contenido. Se esconde mientras dura esa
+ * pestaña y vuelve sola al salir. Si el usuario la eliminó a mano, no vuelve.
+ */
+function actualizarBurbujaSegunVista(vista) {
+  if (piraEliminada) return;
+  const envoltorio = $('#pira-envoltorio');
+  if (!envoltorio) return;
+  const ocultar = vista === 'asistente';
+  envoltorio.classList.toggle('oculto', ocultar);
+  if (ocultar) {
+    // Al esconderla también se cierra el panel flotante: no tendría de dónde
+    // colgar y quedaría flotando solo.
+    alternarPira(false);
+  }
 }
 
 /**
@@ -2210,6 +2244,10 @@ function conectarArrastrePira(burbuja) {
   let inicio = { x: 0, y: 0, izq: 0, arriba: 0 };
   let puntero = null;
   let esperaMantener = null;
+  // Momento del último toque que abrió o cerró el panel. Sirve para reconocer
+  // el doble clic: el segundo toque no debe volver a alternar el panel (si no,
+  // abriría y cerraría enseguida y parecería que no hace nada).
+  let ultimoToque = 0;
 
   const cancelarMantener = () => {
     if (esperaMantener !== null) {
@@ -2275,7 +2313,21 @@ function conectarArrastrePira(burbuja) {
       return;
     }
 
-    // Fue un toque: se abre o cierra el panel, con el saludo del pez.
+    // Fue un toque. Si viene muy pegado al anterior, es un doble clic: se
+    // cancela el primer toque (que ya había abierto o cerrado el panel) y en
+    // su lugar se devuelve la burbuja a su esquina, sin tocar el panel. Así el
+    // doble clic no deja el chat abierto y cerrado de un tirón.
+    const ahora = Date.now();
+    if (ahora - ultimoToque < ESPERA_DOBLE_CLIC) {
+      ultimoToque = 0;
+      // Se deshace el toque anterior y se devuelve la burbuja a su esquina.
+      alternarPira(!piraAbierto);
+      reiniciarPosicionPira(burbuja);
+      return;
+    }
+    ultimoToque = ahora;
+
+    // Un solo toque abre o cierra el panel, con el saludo del pez al abrir.
     const abrir = !piraAbierto;
     if (abrir) {
       marcarPiraHablando(true);
@@ -2292,12 +2344,6 @@ function conectarArrastrePira(burbuja) {
     puntero = null;
     burbuja.classList.remove('arrastrando');
     void evento;
-  });
-
-  // Doble clic devuelve la burbuja a su esquina, tanto en mouse como en táctil.
-  burbuja.addEventListener('dblclick', (evento) => {
-    evento.preventDefault();
-    reiniciarPosicionPira(burbuja);
   });
 }
 
@@ -2560,6 +2606,22 @@ function replicarEnPestana(texto, respuesta) {
  * Devuelve un objeto con las dos partes que hacen falta para animar la
  * respuesta: el nodo exterior (`caja`) y el interior, donde vive el HTML
  * (`cuerpo`). Para el usuario se devuelve el mismo nodo en ambos campos. */
+/**
+ * Avatar del asistente para las burbujas del chat.
+ *
+ * Es siempre la foto de Pira Pires: la misma cara en la pestaña y en el panel
+ * flotante. En la pestaña usa el retrato cuadrado; en el flotante, el pez con
+ * la boca cerrada, que es el que abre y cierra la boca al hablar.
+ */
+function avatarAsistente(flotante) {
+  const src = flotante
+    ? 'img/pescadobocacerrada-avatar.png'
+    : 'img/pirapires-cuadrado.jpg';
+  const medida = flotante ? 'size-7' : 'size-8';
+  return `<img src="${src}" alt="" aria-hidden="true"
+            class="mt-0.5 ${medida} shrink-0 rounded-full object-cover">`;
+}
+
 function agregarBurbuja(rol, html, meta = null, opciones = {}) {
   const contenedor = opciones.contenedor || $('#asistente-historial');
   const flotante = opciones.flotante === true;
@@ -2578,14 +2640,10 @@ function agregarBurbuja(rol, html, meta = null, opciones = {}) {
     burbuja.innerHTML =
       `<div class="burbuja burbuja-usuario">${html}</div>`;
   } else {
-    // En el panel flotante el avatar es la foto de Pira Pires con la boca
-    // cerrada; en la pestaña se mantiene la inicial para no recargarla.
-    const avatar = flotante
-      ? `<img src="img/pescadobocacerrada-avatar.png" alt="" aria-hidden="true"
-              class="mt-0.5 size-7 shrink-0 rounded-full object-cover">`
-      : `<div class="grid size-8 shrink-0 place-items-center rounded-full
-                   bg-primary-50 text-sm font-bold text-primary-600">P</div>`;
-    burbuja.innerHTML = `${avatar}
+    // El avatar es la foto de Pira Pires en las dos vistas: la misma cara en
+    // la pestaña y en el panel flotante. (Antes la pestaña mostraba una «P»
+    // sobre un círculo, que no coincidía con el pez de la burbuja.)
+    burbuja.innerHTML = `${avatarAsistente(flotante)}
        <div class="min-w-0 max-w-[85%]">
          <div class="burbuja burbuja-asistente">${html}</div>
          ${insignia ? `<div class="mt-1.5">${insignia}</div>` : ''}
@@ -2712,13 +2770,8 @@ function agregarPensando(opciones = {}) {
   const flotante = opciones.flotante === true;
   const caja = document.createElement('div');
   caja.className = 'flex items-start gap-3';
-  const avatar = flotante
-    ? `<img src="img/pescadobocacerrada-avatar.png" alt="" aria-hidden="true"
-            class="mt-0.5 size-7 shrink-0 rounded-full object-cover">`
-    : `<div class="grid size-8 shrink-0 place-items-center rounded-full
-                 bg-primary-50 text-sm font-bold text-primary-600">P</div>`;
   caja.innerHTML = `
-    ${avatar}
+    ${avatarAsistente(flotante)}
     <div class="flex items-center gap-1.5 rounded-lg rounded-tl-none border
                 border-surface-200 bg-surface-50 px-3.5 py-3">
       <span class="skeleton size-2"></span>

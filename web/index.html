@@ -521,9 +521,15 @@
 
        El envoltorio agrupa la burbuja, el puntito de aviso y el botón de
        basura: los tres se mueven juntos al arrastrar, y es el envoltorio (no
-       la burbuja) el que lleva el `fixed` y la posición guardada. */
+       la burbuja) el que lleva el `fixed` y la posición guardada.
+
+       `touch-none` va acá y no solo en la burbuja: los eventos de puntero se
+       escuchan en el envoltorio, y sin esto el navegador del celular se queda
+       con el gesto (lo interpreta como scroll) y dispara `pointercancel`, que
+       cancela el toque antes de que llegue a abrir el chat. */
     .pira-envoltorio {
-      @apply fixed right-4 bottom-4 z-70 size-[72px] sm:right-6 sm:bottom-6;
+      @apply fixed right-4 bottom-4 z-70 size-[72px] touch-none
+             sm:right-6 sm:bottom-6;
     }
     .asistente-burbuja {
       @apply grid size-full cursor-grab touch-none place-items-center
@@ -561,15 +567,24 @@
     }
 
     /* Botón de basura: aparece al pasar el mouse (o siempre en pantallas sin
-       hover, donde no habría forma de descubrirlo). */
+       hover, donde no habría forma de descubrirlo).
+
+       Importante: mientras está invisible (`opacity-0`) NO debe recibir
+       clics, porque está apoyado sobre la esquina de la burbuja y se comería
+       los toques que abren el chat. Por eso arranca con `pointer-events-none`
+       y solo se habilita cuando se ve (hover o foco). */
     .pira-eliminar {
-      @apply absolute -top-1 -left-1 grid size-6 cursor-pointer place-items-center
-             rounded-full border border-surface-200 bg-white text-surface-500
-             opacity-0 shadow transition hover:text-danger-600
-             focus-visible:opacity-100;
+      @apply pointer-events-none absolute -top-1 -left-1 grid size-6
+             cursor-pointer place-items-center rounded-full border
+             border-surface-200 bg-white text-surface-500 opacity-0 shadow
+             transition hover:text-danger-600 focus-visible:opacity-100;
     }
-    .pira-envoltorio:hover .pira-eliminar { @apply opacity-100; }
-    @media (hover: none) { .pira-eliminar { @apply opacity-100; } }
+    .pira-envoltorio:hover .pira-eliminar {
+      @apply pointer-events-auto opacity-100;
+    }
+    @media (hover: none) {
+      .pira-eliminar { @apply pointer-events-auto opacity-100; }
+    }
     .pira-envoltorio.arrastrando .pira-eliminar { @apply opacity-0; }
 
     .asistente-panel {
@@ -1352,8 +1367,8 @@
                class="scroll-area flex max-h-[65vh] min-h-80 flex-col gap-3
                       overflow-y-auto border-b border-surface-200 p-4 sm:p-6">
             <div class="flex items-start gap-3">
-              <div class="grid size-8 shrink-0 place-items-center rounded-full
-                          bg-primary-50 text-sm font-bold text-primary-600">P</div>
+              <img src="img/pirapires-cuadrado.jpg" alt="" aria-hidden="true"
+                   class="mt-0.5 size-8 shrink-0 rounded-full object-cover">
               <div class="min-w-0 rounded-lg rounded-tl-none border border-surface-200
                           bg-surface-50 px-3.5 py-2.5 text-sm leading-relaxed text-surface-700">
                 Hola, soy Pira Pires. Preguntame sobre contabilidad, impuestos o el uso
