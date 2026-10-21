@@ -224,14 +224,53 @@ let navegacion = { irA: () => {} };
 // Arranque
 // ============================================================================
 
+/**
+ * ¿La interfaz ya conectó sus manejadores?
+ *
+ * `iniciar()` se vuelve a llamar cada vez que el usuario entra (salir y
+ * volver a entrar). Los manejadores, en cambio, se conectan **una sola vez**:
+ * si el `pointerup` de la burbuja se atendiera dos veces, un solo toque abriría
+ * y cerraría el chat de un tirón y la burbuja parecería estar muerta.
+ */
+let appConectada = false;
+/** ¿Ya se pueden pedir datos a la API al cambiar de vista? */
+let datosListos = false;
+
 async function iniciar() {
+  if (!appConectada) {
+    appConectada = true;
+    conectarApp();
+  } else {
+    // Al volver a entrar, la burbuja de Pira Pires reaparece: si en la sesión
+    // anterior el usuario la había quitado, no se lo dejamos en el molde.
+    piraEliminada = false;
+    $('#pira-envoltorio')?.classList.remove('oculto');
+    $('#pira-burbuja')?.classList.remove('oculto');
+  }
+
+  await cargarEmpresa();
+  await cargarCuentas();
+  // La burbuja de Pira Pires vive fuera de las pestañas: se conecta una sola
+  // vez acá, así está disponible desde cualquier vista.
+  await cargarPiraFlotante();
+  datosListos = true;
+  irA('panel');
+}
+
+/**
+ * Conecta los menús, los botones y la burbuja. Corre una sola vez por página.
+ *
+ * Todo lo que se conecta con `addEventListener` va acá: si se conectara dos
+ * veces (por ejemplo, al salir y volver a entrar), cada toque o clic se
+ * atendería dos veces y la interfaz parecería no responder.
+ */
+function conectarApp() {
   // Los dos menús (lateral y móvil) controlan los mismos paneles y quedan
   // sincronizados: con las flechas se recorren dentro de cada menú.
   // Al elegir una pestaña (con el mouse o con las flechas) se cargan sus datos:
   // antes el cambio de vista solo guardaba el estado y el panel quedaba vacío.
-  // `listo` evita que la llamada inicial de conectarTabsSincronizados pida
-  // datos antes de que estén cargados la empresa y el plan de cuentas.
-  let listo = false;
+  // `datosListos` evita que la llamada inicial de conectarTabsSincronizados
+  // pida datos antes de que estén cargados la empresa y el plan de cuentas.
   navegacion = UI.conectarTabsSincronizados({
     grupos: [$$('#menu [role="tab"]'), $$('#menu-movil [role="tab"]')],
     seleccionar: (vista) => {
@@ -240,21 +279,13 @@ async function iniciar() {
       // chat a pantalla completa. Se esconde para no tapar el contenido y
       // vuelve sola al salir de esa pestaña.
       actualizarBurbujaSegunVista(vista);
-      if (listo) refrescarVista(vista);
+      if (datosListos) refrescarVista(vista);
     },
   });
 
   $('#btn-refrescar').onclick = () => refrescarVista(estado.vista);
   $('#filtro-desde').onchange = leerPeriodo;
   $('#filtro-hasta').onchange = leerPeriodo;
-
-  await cargarEmpresa();
-  await cargarCuentas();
-  // La burbuja de Pira Pires vive fuera de las pestañas: se conecta una sola
-  // vez acá, así está disponible desde cualquier vista.
-  await cargarPiraFlotante();
-  listo = true;
-  irA('panel');
 }
 
 // ============================================================================
@@ -2003,6 +2034,15 @@ let piraAbierto = false;
 let piraEliminada = false;
 /** Evita mandar dos preguntas a la vez desde la burbuja. */
 let piraEnviando = false;
+/**
+ * Momento del último toque sobre la burbuja.
+ *
+ * Sirve para reconocer el doble toque, que devuelve la burbuja a su esquina.
+ * Se reinicia cuando el panel se cierra de otra forma (la X, Escape, cambiar
+ * de pestaña): así un toque normal nunca se confunde con un doble toque y el
+ * chat siempre se abre.
+ */
+let ultimoToque = 0;
 
 /** Abre o cierra el panel flotante y ajusta el foco y el ícono. */
 function alternarPira(abrir) {
@@ -2031,6 +2071,19 @@ function alternarPira(abrir) {
   } else {
     burbuja.focus();
   }
+}
+
+/**
+ * Cierra el panel flotante olvidando el doble toque pendiente.
+ *
+ * Se usa cuando el panel se cierra de una forma que no es un toque sobre la
+ * burbuja (la X, Escape o al cambiar de pestaña). Así el próximo toque sobre
+ * la burbuja se toma como un toque normal y no como la mitad de un doble toque
+ * que ya no existe.
+ */
+function cerrarPira() {
+  ultimoToque = 0;
+  alternarPira(false);
 }
 
 /**
@@ -2110,6 +2163,9 @@ const ESPERA_MANTENER = 650;
 /** Ventana para reconocer un doble clic sobre la burbuja (en milisegundos). */
 const ESPERA_DOBLE_CLIC = 350;
 
+/** ¿Ya se conectaron los manejadores de la burbuja flotante? */
+let piraConectada = false;
+
 async function cargarPiraFlotante() {
   const burbuja = $('#pira-burbuja');
   const panel = $('#pira-panel');
@@ -2122,14 +2178,32 @@ async function cargarPiraFlotante() {
   // aparece donde el usuario la dejó y no salta de la esquina al cargar.
   restaurarPosicionPira(envoltorio);
 
-  conectarArrastrePira(envoltorio);
+  // Los manejadores se conectan **una sola vez**. Si se conectaran dos veces
+  // (al salir y volver a entrar, por ejemplo), un solo toque abriría el chat y
+  // lo cerraría en el mismo gesto: el chat no aparecería y la burbuja parecería
+  // rota.
+  if (!piraConectada) {
+    piraConectada = true;
 
-  $('#pira-cerrar').onclick = () => alternarPira(false);
+    conectarArrastrePira(envoltorio);
 
-  // Escape cierra el panel, igual que un diálogo.
-  document.addEventListener('keydown', (evento) => {
-    if (evento.key === 'Escape' && piraAbierto) alternarPira(false);
-  });
+    // Escape cierra el panel, igual que un diálogo.
+    document.addEventListener('keydown', (evento) => {
+      if (evento.key === 'Escape' && piraAbierto) cerrarPira();
+    });
+
+    // Si cambia el tamaño de la ventana, la burbuja y el panel se reacomodan
+    // para no quedar fuera de la pantalla.
+    window.addEventListener('resize', () => {
+      if (envoltorio.style.left) {
+        const caja = envoltorio.getBoundingClientRect();
+        colocarBurbuja(envoltorio, caja.left, caja.top);
+      }
+      if (piraAbierto) ubicarPanelJuntoAburbuja();
+    });
+  }
+
+  $('#pira-cerrar').onclick = () => cerrarPira();
 
   $('#pira-formulario').onsubmit = (evento) => {
     evento.preventDefault();
@@ -2155,19 +2229,9 @@ async function cargarPiraFlotante() {
     });
   }
 
-  // El botón de basura quita la burbuja y su panel.
+  // El botón de basura quita la burbuja y su panel (preguntando antes).
   const botonEliminar = $('#pira-eliminar');
   if (botonEliminar) botonEliminar.onclick = eliminarPira;
-
-  // Si cambia el tamaño de la ventana, la burbuja y el panel se reacomodan
-  // para no quedar fuera de la pantalla.
-  window.addEventListener('resize', () => {
-    if (envoltorio.style.left) {
-      const caja = envoltorio.getBoundingClientRect();
-      colocarBurbuja(envoltorio, caja.left, caja.top);
-    }
-    if (piraAbierto) ubicarPanelJuntoAburbuja();
-  });
 }
 
 /**
@@ -2182,9 +2246,28 @@ function mostrarNotificacionPira(mostrar) {
   if (punto) punto.classList.toggle('visible', Boolean(mostrar));
 }
 
-/** Quita la burbuja de la pantalla: la oculta, cierra el panel y olvida todo. */
+/**
+ * Quita la burbuja de la pantalla, pero preguntando antes.
+ *
+ * El botón de basura está apoyado sobre la esquina de la burbuja, así que un
+ * toque casi proprio de abrir el chat puede terminar borrándola. Por eso se
+ * pide confirmación y, además, el aviso que sale trae un «Deshacer».
+ */
 function eliminarPira() {
-  alternarPira(false);
+  UI.confirmar({
+    titulo: '¿Quitar la burbuja de Pira Pires?',
+    descripcion: 'El chat flotante desaparece de la pantalla. Si te arrepentís, '
+      + 'lo podés volver a mostrar desde el aviso que aparece abajo.',
+    confirmarTexto: 'Quitar burbuja',
+    icono: 'papelera',
+  }).then((aceptado) => {
+    if (aceptado) quitarBurbujaPira();
+  });
+}
+
+/** Quita la burbuja de verdad: la esconde, cierra el panel y olvida todo. */
+function quitarBurbujaPira() {
+  cerrarPira();
   mostrarNotificacionPira(false);
   limpiarArchivosPira();
 
@@ -2200,8 +2283,26 @@ function eliminarPira() {
   } catch {
     // Sin almacenamiento: no hay nada que olvidar.
   }
-  avisar('Se quitó la burbuja de Pira Pires. Recargá la página para traerla de vuelta.',
-    'info');
+
+  UI.toast({
+    variant: 'info',
+    title: 'Burbuja quitada',
+    description: 'Pira Pires dejó de aparecer flotando en la pantalla.',
+    accion: { label: 'Deshacer', onPress: restaurarBurbujaPira },
+  });
+}
+
+/** Vuelve a mostrar la burbuja que se había quitado. */
+function restaurarBurbujaPira() {
+  piraEliminada = false;
+  const envoltorio = $('#pira-envoltorio');
+  const burbuja = $('#pira-burbuja');
+  if (envoltorio) envoltorio.classList.remove('oculto');
+  if (burbuja) burbuja.classList.remove('oculto');
+  // Si la vista activa es la del asistente, la burbuja sigue escondida: ahí
+  // está el mismo chat a pantalla completa.
+  actualizarBurbujaSegunVista(estado.vista);
+  avisar('La burbuja de Pira Pires volvió a la pantalla.', 'success');
 }
 
 /**
@@ -2220,7 +2321,7 @@ function actualizarBurbujaSegunVista(vista) {
   if (ocultar) {
     // Al esconderla también se cierra el panel flotante: no tendría de dónde
     // colgar y quedaría flotando solo.
-    alternarPira(false);
+    cerrarPira();
   }
 }
 
@@ -2244,10 +2345,6 @@ function conectarArrastrePira(burbuja) {
   let inicio = { x: 0, y: 0, izq: 0, arriba: 0 };
   let puntero = null;
   let esperaMantener = null;
-  // Momento del último toque que abrió o cerró el panel. Sirve para reconocer
-  // el doble clic: el segundo toque no debe volver a alternar el panel (si no,
-  // abriría y cerraría enseguida y parecería que no hace nada).
-  let ultimoToque = 0;
 
   const cancelarMantener = () => {
     if (esperaMantener !== null) {
@@ -2313,7 +2410,11 @@ function conectarArrastrePira(burbuja) {
       return;
     }
 
-    // Fue un toque. Si viene muy pegado al anterior, es un doble clic: se
+    // Fue un toque. Si el dedo cayó en el botón de basura, ese toque es para
+    // la basura y no para el chat: no se toca el panel.
+    if (esBotonEliminar(evento.target)) return;
+
+    // Si viene muy pegado al anterior, es un doble clic: se
     // cancela el primer toque (que ya había abierto o cerrado el panel) y en
     // su lugar se devuelve la burbuja a su esquina, sin tocar el panel. Así el
     // doble clic no deja el chat abierto y cerrado de un tirón.
@@ -2345,6 +2446,11 @@ function conectarArrastrePira(burbuja) {
     burbuja.classList.remove('arrastrando');
     void evento;
   });
+}
+
+/** ¿El elemento es el botón de basura de la burbuja? */
+function esBotonEliminar(elemento) {
+  return Boolean(elemento && elemento.closest && elemento.closest('#pira-eliminar'));
 }
 
 /** Pasa la burbuja de `right`/`bottom` a `left`/`top` para poder arrastrarla. */
