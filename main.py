@@ -21,6 +21,11 @@ variables de entorno, o en su defecto del archivo local `claves.env`
 En un hosting que inyecta las variables de entorno `HOST` y `PORT` —como
 Render— los valores por defecto pasan a ser esos, así que alcanza con
 `python3 main.py --auto-sembrar`.
+
+Render solo inyecta `PORT` (no `HOST`), y exige que el servidor escuche en
+`0.0.0.0` para que su proxy pueda alcanzarlo. Por eso, cuando la variable
+`RENDER` está presente, el host por defecto pasa a ser `0.0.0.0`; en la
+máquina propia se sigue escuchando solo en `127.0.0.1`.
 """
 
 from __future__ import annotations
@@ -71,13 +76,19 @@ def cargar_claves(ruta: Path | None = None) -> list[str]:
 
 
 def _crear_parser() -> argparse.ArgumentParser:
+    # Render solo inyecta PORT: sin esto el servidor escucharía en
+    # 127.0.0.1 y el proxy de Render no llegaría a él (error 502).
+    host_por_defecto = os.environ.get("HOST") or (
+        "0.0.0.0" if os.environ.get("RENDER") else "127.0.0.1"
+    )
+
     parser = argparse.ArgumentParser(
         description="Mini ERP Contable · Etapas 1 a 3",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--host",
-        default=os.environ.get("HOST", "127.0.0.1"),
+        default=host_por_defecto,
         help="Dirección de escucha (por defecto, la variable HOST o 127.0.0.1)",
     )
     parser.add_argument(

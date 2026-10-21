@@ -32,6 +32,22 @@ services:
     # Desplegar en cada commit a la rama principal.
     autoDeployTrigger: commit
 
-# No se declara la variable PORT a propósito: Render la inyecta sola y
-# `main.py` la lee del entorno. Fijarla a mano sería un paso que puede
-# desincronizarse del puerto que espera el proxy.
+    envVars:
+      # Render exige escuchar en 0.0.0.0 (no en 127.0.0.1) para que su
+      # proxy pueda alcanzar el servicio. `main.py` también lo deduce solo
+      # cuando detecta la variable `RENDER`, pero aquí queda explícito.
+      - key: HOST
+        value: 0.0.0.0
+
+      # `PORT` no se declara a propósito: Render la inyecta sola (por
+      # defecto 10000) y `main.py` la lee del entorno. Fijarla a mano sería
+      # un paso que puede desincronizarse del puerto que espera el proxy.
+
+      # Claves del asistente virtual. Con `sync: false` Render las pide en
+      # el panel al crear el Blueprint; si se dejan vacías, la aplicación
+      # funciona igual y solo el chat con IA queda deshabilitado.
+      # El archivo local `claves.env` está ignorado por git: no sube al repo.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

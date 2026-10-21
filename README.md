@@ -202,9 +202,16 @@ git branch -M main
 git push -u origin main
 ```
 
+En este repositorio ya está hecho: el remoto se llama `origen` y apunta a
+`https://github.com/FrancoMartinez33/Mini-ERP-PiraPires.git`.
+
+```bash
+git push origen main     # subir los cambios nuevos
+```
+
 ### 2. Crear el servicio
 
-En el panel de Render: **New → Blueprint**, apuntar al repositorio yRender
+En el panel de Render: **New → Blueprint**, apuntar al repositorio y Render
 lee `render.yaml`. La región es `ohio` y **no se puede cambiar después**;
 se eligió la más cercana a Paraguay.
 
@@ -217,6 +224,26 @@ python3 main.py --auto-sembrar
 `main.py` lee `HOST` y `PORT` del entorno, que es como Render indica que
 tiene que escuchar un servicio. `--auto-sembrar` carga los datos de prueba
 **solo si la base no tiene asientos**, así que nunca pisa lo que haya.
+
+> **Ojo con `HOST`.** Render solo inyecta `PORT` (10000 por defecto) y
+> exige que el servidor escuche en `0.0.0.0`, no en `127.0.0.1`: si escucha
+> solo en el bucle local, el proxy de Render no lo alcanza y todas las
+> páginas devuelven error 502. Por eso `render.yaml` fija `HOST=0.0.0.0`
+> y `main.py` además lo deduce solo cuando detecta la variable `RENDER`.
+
+### 3. Las claves del asistente (opcional)
+
+`claves.env` está ignorado por git, así que **no sube al repositorio**. Las
+claves hay que ponerlas en el panel:
+
+- **Render → Environment → tu servicio → Environment Variables**: agregar
+  `GROQ_API_KEY` y/o `GEMINI_API_KEY`. (El Blueprint ya las declara con
+  `sync: false`, así que Render las pide al crearlo; también se pueden
+  agregar después a mano.)
+- **Local**: seguir usando `claves.env` en la carpeta del proyecto.
+
+Si no hay ninguna clave, la aplicación funciona igual y solo el chat con IA
+queda deshabilitado.
 
 ### Qué esperar del plan gratuito
 
