@@ -834,6 +834,7 @@ class Manejador(BaseHTTPRequestHandler):
         resultado = asistente.preguntar(
             cuerpo.get("pregunta", ""),
             cuerpo.get("historial"),
+            cuerpo.get("archivos"),
         )
         self._enviar_json(resultado)
 

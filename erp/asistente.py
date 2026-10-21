@@ -26,6 +26,14 @@ Características
    (``urllib.request``), igual que el resto del proyecto: no hay ``pip``
    en el entorno de despliegue.
 
+5. **Archivos adjuntos.** Además de texto, acepta archivos que el usuario
+   adjunta desde el chat: **imágenes** (capturas, fotos de balances), que se
+   mandan al modelo con visión, y **CSV, TXT, JSON y similares**, que se leen
+   como texto y se agregan al mensaje. Los formatos que no se pueden leer con
+   la biblioteca estándar (PDF, planillas de Excel) se informan como tales en
+   vez de mandarse como binario. Esto permite pasarle a Pira Pires los datos
+   de un balance y que trabaje sobre números reales.
+
 Configuración
 -------------
 
@@ -42,6 +50,11 @@ Uso::
     from . import asistente
     r = asistente.preguntar("¿Cómo registro una venta con IVA?")
     r["respuesta"], r["proveedor"], r["tiempo_ms"]
+
+    # Con un archivo adjunto (contenido en base64):
+    r = asistente.preguntar("Mirá este balance", None, [
+        {"nombre": "balance.csv", "tipo": "text/csv", "contenido": base64},
+    ])
 """
 
 from __future__ import annotations
@@ -97,6 +110,18 @@ ESTILO
 · Si la consulta es sobre el uso del propio sistema (plan de cuentas,
   libro diario, libro mayor, balance), orientá sobre cómo hacerlo ahí.
 
+ARCHIVOS Y DATOS DEL BALANCE
+El usuario puede adjuntar archivos: imágenes (capturas de pantalla, fotos de
+libros o balances), hojas de cálculo exportadas a CSV, y archivos de texto o
+JSON con datos contables. Cuando llegue un archivo:
+· Leelo con atención y usá los datos reales que contiene; no los inventes ni
+  los completes con supuestos.
+· Si el archivo está incompleto, no se entiende o faltan datos para el
+  cálculo, pedí lo que falta antes de sacar conclusiones.
+· Cuando el archivo traiga movimientos o saldos, podés proponer el asiento,
+  la liquidación o el análisis, pero aclará siempre de dónde sale cada número.
+· Si el archivo no tiene relación con contabilidad o impuestos, decilo.
+
 LÍMITE
 No asumís el rol de contador que firma declaraciones juradas ni emitís
 conceptos vinculantes: sos una guía de estudio.
@@ -144,6 +169,15 @@ PROVEEDORES = (PROVEEDOR_GROQ, PROVEEDOR_GEMINI)
 
 class ErrorAsistente(ErrorOperacionInvalida):
     """No se pudo obtener respuesta de ningún proveedor."""
+
+
+#: Tope por archivo adjunto. El navegador ya recorta en 8 MB; acá se vuelve a
+#: comprobar porque el servidor no puede confiar en lo que le mandan.
+MAXIMO_ARCHIVO_BYTES = 8 * 1024 * 1024
+
+#: Cuánto texto de un archivo se mete en el mensaje. Un CSV enorme no debe
+#: viajar entero en cada consulta: se recorta y se le avisa al modelo.
+MAXIMO_TEXTO_ARCHIVO = 100_000
 
 
 # ---------------------------------------------------------------------------
@@ -207,9 +241,31 @@ def _llamar_gemini(proveedor: dict, clave: str, mensajes: list[dict]) -> dict:
     """Respuesta en formato Gemini: el historial va como contents/parts."""
     ultimo_error: Exception | None = None
 
+    def _partes(mensaje: dict) -> list[dict]:
+        """Convierte el contenido de un mensaje a `parts` de Gemini.
+
+        Puede ser texto simple o una lista de partes multimodales (texto e
+        imágenes en base64), que es como llegan los archivos adjuntos.
+        """
+        contenido = mensaje["content"]
+        if isinstance(contenido, str):
+            return [{"text": contenido}]
+        partes: list[dict] = []
+        for parte in contenido:
+            if parte.get("type") == "text":
+                partes.append({"text": parte.get("text", "")})
+            elif parte.get("type") == "image_url":
+                url = (parte.get("image_url") or {}).get("url", "")
+                # La URL viene como `data:image/png;base64,AAAA…`.
+                if "," in url:
+                    cabecera, datos = url.split(",", 1)
+                    tipo = cabecera.split(";")[0].removeprefix("data:") or "image/png"
+                    partes.append({"inlineData": {"mimeType": tipo, "data": datos}})
+        return partes
+
     contenido = [
         {"role": "model" if m["role"] == "assistant" else "user",
-         "parts": [{"text": m["content"]}]}
+         "parts": _partes(m)}
         for m in mensajes if m["role"] in {"user", "assistant"}
     ]
 
@@ -269,12 +325,126 @@ def proveedores_disponibles() -> list[dict]:
     ]
 
 
+def _decodificar_archivo(archivo: dict) -> bytes:
+    """
+    Devuelve los bytes de un archivo recibido del navegador.
+
+    El navegador manda el contenido en base64; acá se valida y se decodifica.
+    Lanza ``ErrorAsistente`` si el archivo está mal formado o es demasiado
+    grande, para no gastar una consulta con algo que no se puede leer.
+    """
+    import base64
+
+    contenido = archivo.get("contenido") or ""
+    if not isinstance(contenido, str) or not contenido.strip():
+        raise ErrorAsistente(
+            f"El archivo «{archivo.get('nombre', '?')}» llegó vacío."
+        )
+    try:
+        datos = base64.b64decode(contenido, validate=False)
+    except Exception as exc:  # noqa: BLE001
+        raise ErrorAsistente(
+            f"No se pudo decodificar «{archivo.get('nombre', '?')}»."
+        ) from exc
+    if len(datos) > MAXIMO_ARCHIVO_BYTES:
+        raise ErrorAsistente(
+            f"«{archivo.get('nombre', '?')}» supera el máximo de "
+            f"{MAXIMO_ARCHIVO_BYTES // (1024 * 1024)} MB."
+        )
+    return datos
+
+
+def _texto_de_archivo(archivo: dict, datos: bytes) -> str | None:
+    """
+    Extrae el texto de un archivo, si es de un tipo que se pueda leer.
+
+    Devuelve ``None`` cuando el archivo no es texto (por ejemplo una imagen):
+    en ese caso se manda como imagen al modelo, no como texto.
+    """
+    nombre = str(archivo.get("nombre", "")).lower()
+    tipo = str(archivo.get("tipo", "")).lower()
+
+    if tipo.startswith("image/"):
+        return None
+
+    extensiones_texto = (".txt", ".csv", ".json", ".md", ".log", ".tsv", ".xml")
+    if not (tipo.startswith("text/") or tipo in {"application/json", "application/csv"}
+            or nombre.endswith(extensiones_texto)):
+        return None
+
+    for codificacion in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            texto = datos.decode(codificacion)
+            # Un tope generoso: el archivo entero no debería viajar en cada
+            # consulta. Si es más largo, se recorta y se avisa al modelo.
+            if len(texto) > MAXIMO_TEXTO_ARCHIVO:
+                texto = texto[:MAXIMO_TEXTO_ARCHIVO] + "\n… (archivo recortado)"
+            return texto
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def _bloque_archivos(archivos: list[dict] | None) -> tuple[str, list[dict]]:
+    """
+    Separa los adjuntos en texto y en imágenes.
+
+    Devuelve ``(texto_para_el_prompt, imagenes)``. El texto se agrega al
+    mensaje del usuario con una cabecera por archivo, así el modelo sabe de
+    dónde salió cada cosa. Las imágenes se devuelven aparte para mandarlas
+    en el formato multimodal de cada proveedor.
+    """
+    if not archivos:
+        return "", []
+
+    partes_texto: list[str] = []
+    imagenes: list[dict] = []
+
+    for archivo in archivos:
+        if not isinstance(archivo, dict):
+            continue
+        datos = _decodificar_archivo(archivo)
+        nombre = str(archivo.get("nombre", "archivo"))
+        tipo = str(archivo.get("tipo", "")).lower()
+
+        texto = _texto_de_archivo(archivo, datos)
+        if texto is None and tipo.startswith("image/"):
+            imagenes.append({
+                "nombre": nombre,
+                "tipo": tipo or "image/png",
+                "contenido": archivo.get("contenido", ""),
+            })
+            continue
+        if texto is None:
+            # Formato que no se puede leer (por ejemplo un PDF sin extractor
+            # de texto): se avisa en vez de mandarlo como basura binaria.
+            partes_texto.append(
+                f"### Archivo adjunto: {nombre}\n"
+                f"(No pude leer este archivo: el formato «{tipo or 'desconocido'}» "
+                f"no se puede procesar. Si necesitás que lo analice, pasalo como "
+                f"imagen, CSV, TXT o JSON.)"
+            )
+            continue
+
+        partes_texto.append(
+            f"### Archivo adjunto: {nombre}\n```\n{texto}\n```"
+        )
+
+    return "\n\n".join(partes_texto), imagenes
+
+
 def preguntar(
     pregunta: str,
     historial: list[dict] | None = None,
+    archivos: list[dict] | None = None,
 ) -> dict:
     """
     Envía la consulta al asistente e intenta los proveedores en orden.
+
+    ``archivos`` es una lista de adjuntos ``{nombre, tipo, contenido}``, con el
+    contenido en base64: imágenes (capturas, fotos de balances), CSV, TXT y
+    JSON. Las imágenes viajan al modelo con visión; el texto se agrega al
+    mensaje como contexto.
 
     Devuelve ``{respuesta, proveedor, modelo, tiempo_ms, intentos}`` donde
     ``intentos`` lista qué probó y qué pasó en cada caso, para poder
@@ -284,7 +454,8 @@ def preguntar(
     fallan todos los proveedores.
     """
     pregunta = (pregunta or "").strip()
-    if not pregunta:
+    texto_archivos, imagenes = _bloque_archivos(archivos)
+    if not pregunta and not texto_archivos and not imagenes:
         raise ErrorAsistente("La pregunta no puede estar vacía.")
     if len(pregunta) > 4000:
         raise ErrorAsistente("La pregunta es demasiado larga (máximo 4000 caracteres).")
@@ -295,7 +466,23 @@ def preguntar(
             mensajes.append(
                 {"role": mensaje["role"], "content": str(mensaje["content"])[:4000]}
             )
-    mensajes.append({"role": "user", "content": pregunta})
+
+    # El mensaje del usuario se arma con la pregunta y los archivos de texto.
+    # Si además hay imágenes, se usa el formato multimodal: una lista de
+    # partes, donde cada imagen viaja en base64.
+    cuerpo = pregunta or "Analizá el archivo adjunto."
+    if texto_archivos:
+        cuerpo = f"{cuerpo}\n\n{texto_archivos}"
+    if imagenes:
+        partes: list[dict] = [{"type": "text", "text": cuerpo}]
+        for imagen in imagenes:
+            partes.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{imagen['tipo']};base64,{imagen['contenido']}"},
+            })
+        mensajes.append({"role": "user", "content": partes})
+    else:
+        mensajes.append({"role": "user", "content": cuerpo})
 
     intentos: list[dict] = []
     empezado = time.monotonic()

@@ -116,18 +116,39 @@ Se abre de dos maneras, con la misma conversación compartida:
 * desde la **burbuja flotante** de la esquina inferior derecha, que despliega
   un panel de chat sobre la vista en la que se está trabajando.
 
-La burbuja es un círculo de **60 px** (el tamaño de la de Messenger) y se
-**puede arrastrar** a cualquier lugar de la pantalla, como la de Messenger:
-se agarra con el mouse o el dedo y queda donde se suelta, siempre dentro de la
-ventana. La posición se recuerda entre visitas. Para devolverla a su esquina
-alcanza con hacerle **doble clic** (o **mantener presionado** en el celular).
-Un toque sin movimiento abre o cierra el chat; un arrastre, no: los dos gestos
-se distinguen por cuánto se movió el puntero.
+La burbuja es un círculo de **72 px** y se **puede arrastrar** a cualquier
+lugar de la pantalla, como la de Messenger: se agarra con el mouse o el dedo y
+queda donde se suelta, siempre dentro de la ventana. La posición se recuerda
+entre visitas. Para devolverla a su esquina alcanza con hacerle **doble clic**
+(o **mantener presionado** en el celular). Un toque sin movimiento abre o
+cierra el chat; un arrastre, no: los dos gestos se distinguen por cuánto se
+movió el puntero.
+
+Cuando Pira Pires termina de responder con el panel cerrado, aparece un
+**puntito de aviso** sobre la burbuja, como el de Messenger; se apaga solo al
+abrir el chat. Al pasar el mouse por la burbuja aparece además un botón de
+**basura** que la quita de la pantalla (vuelve recargando la página).
 
 La foto del asistente es un pez: **boca cerrada** cuando escucha y **boca
 abierta** mientras redacta. Las respuestas no aparecen de golpe: se **escriben
 palabra por palabra** con un cursor que parpadea, al ritmo del largo del texto.
 El pez mantiene la boca abierta mientras escribe y la cierra al terminar.
+
+**Pira Pires recibe archivos.** Desde el clip del pie del chat se puede adjuntar:
+
+* **imágenes** (capturas de pantalla, fotos de libros o balances) → se mandan
+  al modelo con visión;
+* **CSV, TXT, JSON, MD y TSV** → se leen como texto y se agregan al mensaje;
+* **PDF y hojas de cálculo** → se aceptan, pero como no hay extractor de texto
+  en la biblioteca estándar se le avisa al modelo que no se pudieron leer y se
+  recomienda pasarlos como imagen o CSV.
+
+Los adjuntos quedan en una tira de etiquetas sobre el pie, con miniatura en el
+caso de las imágenes y una **×** para quitarlos. Se envían una sola vez, junto
+con la próxima pregunta (que puede ir vacía: adjuntar un balance y dejar que
+Pira Pires lo mire es un caso válido). El tope por archivo es de **8 MB** y el
+texto de cada uno se recorta a **100 000 caracteres** para no arrastrar un CSV
+gigante en cada consulta.
 
 
 ---
@@ -458,7 +479,7 @@ códigos HTTP con sentido.
 | GET | `/api/iva/resumen` | Débito y Crédito Fiscal del período |
 | POST | `/api/iva/liquidar` | Contabilizar la liquidación del período |
 | GET | `/api/asistente/configuracion` | Estado de los proveedores de la IA |
-| POST | `/api/asistente` | Consultar a Pira Pires |
+| POST | `/api/asistente` | Consultar a Pira Pires (acepta `archivos` en base64) |
 | POST | `/api/datos-demo` | Cargar las 15 operaciones |
 | POST | `/api/reiniciar` | Vaciar la base |
 

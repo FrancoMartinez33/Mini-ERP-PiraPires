@@ -253,6 +253,71 @@ async function iniciar() {
   irA('panel');
 }
 
+// ============================================================================
+// Tema claro / oscuro
+// ============================================================================
+//
+// El tema se guarda como `data-tema="oscuro"` en el <html>. Las variables CSS
+// del tema oscuro viven en `index.html` (bloque `[data-tema="oscuro"]`), así
+// que acá solo se prende y se apaga. La elección se recuerda entre visitas y,
+// la primera vez, se respeta lo que pida el sistema operativo.
+
+/** Clave de `localStorage` donde se recuerda el tema elegido. */
+const CLAVE_TEMA = 'erp-tema';
+
+/** Lee el tema guardado, o el del sistema si nunca se eligió uno. */
+function leerTemaGuardado() {
+  try {
+    const guardado = localStorage.getItem(CLAVE_TEMA);
+    if (guardado === 'claro' || guardado === 'oscuro') return guardado;
+  } catch {
+    // Sin almacenamiento: se cae al del sistema.
+  }
+  const sistemaOscuro = window.matchMedia
+    && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return sistemaOscuro ? 'oscuro' : 'claro';
+}
+
+/** Aplica un tema al documento y actualiza el botón. */
+function aplicarTema(tema) {
+  const oscuro = tema === 'oscuro';
+  document.documentElement.setAttribute('data-tema', tema);
+  document.documentElement.style.colorScheme = oscuro ? 'dark' : 'light';
+
+  const boton = $('#btn-tema');
+  const icono = $('#btn-tema-icono');
+  if (icono) {
+    // El icono muestra a qué se va a cambiar, no el estado actual: con el
+    // tema claro se ve la luna («pasá a oscuro»).
+    icono.innerHTML = UI.icono(oscuro ? 'sol' : 'luna', { clase: 'size-4' });
+  }
+  if (boton) {
+    const etiqueta = oscuro ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro';
+    boton.setAttribute('aria-label', etiqueta);
+    boton.setAttribute('aria-pressed', String(oscuro));
+    boton.title = etiqueta;
+  }
+}
+
+/** Alterna el tema y lo recuerda. */
+function alternarTema() {
+  const actual = document.documentElement.getAttribute('data-tema');
+  const nuevo = actual === 'oscuro' ? 'claro' : 'oscuro';
+  aplicarTema(nuevo);
+  try {
+    localStorage.setItem(CLAVE_TEMA, nuevo);
+  } catch {
+    // Sin almacenamiento: el tema vale solo para esta visita.
+  }
+}
+
+/** Prepara el botón de tema y aplica el tema inicial. */
+function iniciarTema() {
+  aplicarTema(leerTemaGuardado());
+  const boton = $('#btn-tema');
+  if (boton) boton.onclick = alternarTema;
+}
+
 /** Lee el filtro de período de la barra superior. */
 function leerPeriodo() {
   estado.periodo = {
@@ -1928,7 +1993,11 @@ function alternarPira(abrir) {
   burbuja.setAttribute('aria-expanded', String(piraAbierto));
   // El panel se abre pegado a la burbuja, así el chat aparece donde está el
   // pez y no en una esquina lejana.
-  if (piraAbierto) ubicarPanelJuntoAburbuja();
+  if (piraAbierto) {
+    ubicarPanelJuntoAburbuja();
+    // Abrir el chat equivale a leer lo que llegó: el aviso se apaga.
+    mostrarNotificacionPira(false);
+  }
   // Al cerrar, el pez vuelve a la boca cerrada. Al abrir **no** se toca la
   // foto: la elige quien llama (`enviarPreguntaPira` cuando piensa, y el
   // propio botón cuando saluda), así el gesto de saludo no se pisa.
@@ -2015,13 +2084,16 @@ const ESPERA_MANTENER = 650;
 async function cargarPiraFlotante() {
   const burbuja = $('#pira-burbuja');
   const panel = $('#pira-panel');
+  // El envoltorio es lo que se arrastra y lo que guarda la posición: así el
+  // puntito de aviso y el botón de basura viajan con la burbuja.
+  const envoltorio = $('#pira-envoltorio') || burbuja;
   if (!burbuja || !panel) return;
 
   // La posición guardada se restaura antes de cualquier cosa, así la burbuja
   // aparece donde el usuario la dejó y no salta de la esquina al cargar.
-  restaurarPosicionPira(burbuja);
+  restaurarPosicionPira(envoltorio);
 
-  conectarArrastrePira(burbuja);
+  conectarArrastrePira(envoltorio);
 
   $('#pira-cerrar').onclick = () => alternarPira(false);
 
@@ -2035,15 +2107,70 @@ async function cargarPiraFlotante() {
     enviarPreguntaPira();
   };
 
+  // Adjuntar archivos: el botón de clip abre el selector escondido.
+  const campoArchivo = $('#pira-archivo');
+  const botonAdjuntar = $('#pira-adjuntar');
+  if (botonAdjuntar && campoArchivo) {
+    botonAdjuntar.onclick = () => campoArchivo.click();
+    campoArchivo.onchange = async () => {
+      await adjuntarArchivosPira(campoArchivo.files);
+      // Se limpia el input para poder volver a elegir el mismo archivo.
+      campoArchivo.value = '';
+    };
+  }
+  // Quitar un adjunto: delegado, porque las etiquetas se repintan enteras.
+  const listaArchivos = $('#pira-archivos');
+  if (listaArchivos) {
+    UI.delegar(listaArchivos, '[data-quitar-archivo]', (elemento) => {
+      quitarArchivoPira(Number(elemento.dataset.quitarArchivo));
+    });
+  }
+
+  // El botón de basura quita la burbuja y su panel.
+  const botonEliminar = $('#pira-eliminar');
+  if (botonEliminar) botonEliminar.onclick = eliminarPira;
+
   // Si cambia el tamaño de la ventana, la burbuja y el panel se reacomodan
   // para no quedar fuera de la pantalla.
   window.addEventListener('resize', () => {
-    if (burbuja.style.left) {
-      const caja = burbuja.getBoundingClientRect();
-      colocarBurbuja(burbuja, caja.left, caja.top);
+    if (envoltorio.style.left) {
+      const caja = envoltorio.getBoundingClientRect();
+      colocarBurbuja(envoltorio, caja.left, caja.top);
     }
     if (piraAbierto) ubicarPanelJuntoAburbuja();
   });
+}
+
+/**
+ * Muestra u oculta el puntito de aviso de la burbuja.
+ *
+ * Es el aviso de «hay una respuesta nueva»: se prende cuando Pira Pires termina
+ * de contestar con el panel cerrado, y se apaga al abrirlo. Nunca se prende con
+ * el panel abierto, porque ahí la respuesta se está viendo.
+ */
+function mostrarNotificacionPira(mostrar) {
+  const punto = $('#pira-notificacion');
+  if (punto) punto.classList.toggle('visible', Boolean(mostrar));
+}
+
+/** Quita la burbuja de la pantalla: la oculta, cierra el panel y olvida todo. */
+function eliminarPira() {
+  alternarPira(false);
+  mostrarNotificacionPira(false);
+  limpiarArchivosPira();
+
+  const envoltorio = $('#pira-envoltorio');
+  const burbuja = $('#pira-burbuja');
+  if (envoltorio) envoltorio.classList.add('oculto');
+  if (burbuja) burbuja.classList.add('oculto');
+
+  try {
+    localStorage.removeItem(CLAVE_POSICION);
+  } catch {
+    // Sin almacenamiento: no hay nada que olvidar.
+  }
+  avisar('Se quitó la burbuja de Pira Pires. Recargá la página para traerla de vuelta.',
+    'info');
 }
 
 /**
@@ -2232,7 +2359,9 @@ async function enviarPreguntaPira() {
   const campo = $('#pira-pregunta');
   const boton = $('#pira-enviar');
   const texto = (campo.value || '').trim();
-  if (!texto || piraEnviando) return;
+  // Se puede enviar solo un archivo, sin escribir nada: es común adjuntar un
+  // balance y dejar que Pira Pires lo mire y pregunte qué hacer con él.
+  if ((!texto && !piraArchivos.length) || piraEnviando) return;
 
   piraEnviando = true;
   boton.classList.add('btn-pending');
@@ -2241,8 +2370,18 @@ async function enviarPreguntaPira() {
   const historial = $('#pira-historial');
   const opciones = { contenedor: historial, flotante: true };
 
-  agregarBurbuja('user', markdownBasico(texto), null, opciones);
+  // El mensaje del usuario muestra la pregunta y, si hay, los adjuntos.
+  const resumen = resumenAdjuntosPira();
+  const htmlUsuario = markdownBasico(texto || '(archivo adjunto)')
+    + (resumen ? `<div class="mt-1.5 text-xs opacity-80">${resumen}</div>` : '');
+  agregarBurbuja('user', htmlUsuario, null, opciones);
   campo.value = '';
+
+  // Los archivos se mandan una sola vez: a partir de acá ya viajan en el
+  // historial como texto y volver a mandarlos duplicaría el contexto.
+  const archivos = piraArchivos.slice();
+  limpiarArchivosPira();
+
   // Mientras piensa, el pez abre la boca: es el indicador de actividad.
   marcarPiraHablando(true);
   const esperando = agregarPensando(opciones);
@@ -2250,10 +2389,10 @@ async function enviarPreguntaPira() {
   try {
     const r = await api('/api/asistente', {
       method: 'POST',
-      body: { pregunta: texto, historial: estado.conversacion },
+      body: { pregunta: texto, historial: estado.conversacion, archivos },
     });
 
-    estado.conversacion.push({ role: 'user', content: texto });
+    estado.conversacion.push({ role: 'user', content: texto || '(archivo adjunto)' });
     estado.conversacion.push({ role: 'assistant', content: r.respuesta });
 
     esperando.remove();
@@ -2262,11 +2401,15 @@ async function enviarPreguntaPira() {
     const respuesta = agregarBurbuja('assistant', '', r, opciones);
     animarEscritura(respuesta.cuerpo, markdownBasico(r.respuesta), {
       alEscribir: () => bajarAlFinal(respuesta.contenedor),
-      alTerminar: () => marcarPiraHablando(false),
+      alTerminar: () => {
+        marcarPiraHablando(false);
+        // Si el panel quedó cerrado mientras escribía, avisa con el puntito.
+        if (!piraAbierto) mostrarNotificacionPira(true);
+      },
     });
     // La pestaña también muestra la conversación: se replica ahí si está
     // montada, para que las dos vistas no se contradigan.
-    replicarEnPestana(texto, r);
+    replicarEnPestana(texto || '(archivo adjunto)', r);
   } catch (error) {
     esperando.remove();
     agregarFallo(error, opciones);
@@ -2278,6 +2421,110 @@ async function enviarPreguntaPira() {
     boton.disabled = false;
     campo.focus();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Archivos adjuntos de Pira Pires
+// ---------------------------------------------------------------------------
+//
+// Pira Pires puede recibir imágenes (capturas de pantalla, fotos de libros o
+// balances), PDF, CSV, TXT y JSON. Todo se lee acá, en el navegador, y viaja
+// en base64; el servidor decide qué hacer con cada tipo. Los archivos quedan
+// en memoria mientras dura la pregunta: se adjuntan, se ven en una tira de
+// etiquetas, y se envían una sola vez con la próxima pregunta.
+
+/** Archivos adjuntos pendientes de enviar. */
+let piraArchivos = [];
+
+/** Tope de tamaño por archivo, para no colgar la conversación. */
+const MAXIMO_ARCHIVO = 8 * 1024 * 1024;   // 8 MB
+
+/** Lee un archivo como base64, sin el encabezado `data:...;base64,`. */
+function leerArchivoBase64(archivo) {
+  return new Promise((resolver, rechazar) => {
+    const lector = new FileReader();
+    lector.onload = () => {
+      const datos = String(lector.result || '');
+      const coma = datos.indexOf(',');
+      resolver(coma >= 0 ? datos.slice(coma + 1) : datos);
+    };
+    lector.onerror = () => rechazar(new Error('No se pudo leer el archivo.'));
+    lector.readAsDataURL(archivo);
+  });
+}
+
+/** Toma los archivos elegidos en el input y los prepara para enviar. */
+async function adjuntarArchivosPira(lista) {
+  const elegidos = Array.from(lista || []);
+  if (!elegidos.length) return;
+
+  for (const archivo of elegidos) {
+    if (archivo.size > MAXIMO_ARCHIVO) {
+      avisar(`«${archivo.name}» es más grande de 8 MB y no se adjuntó.`, 'error');
+      continue;
+    }
+    try {
+      const contenido = await leerArchivoBase64(archivo);
+      piraArchivos.push({
+        nombre: archivo.name,
+        tipo: archivo.type || 'application/octet-stream',
+        tamano: archivo.size,
+        contenido,
+      });
+    } catch {
+      avisar(`No se pudo leer «${archivo.name}».`, 'error');
+    }
+  }
+  pintarArchivosPira();
+}
+
+/** Quita un adjunto por su índice. */
+function quitarArchivoPira(indice) {
+  piraArchivos.splice(indice, 1);
+  pintarArchivosPira();
+}
+
+/** Vacía la lista de adjuntos. */
+function limpiarArchivosPira() {
+  piraArchivos = [];
+  pintarArchivosPira();
+}
+
+/** ¿El archivo es una imagen (se puede mostrar una miniatura)? */
+function esImagenPira(archivo) {
+  return /^image\//.test(archivo.tipo) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(archivo.nombre);
+}
+
+/** Dibuja la tira de adjuntos sobre el pie del panel. */
+function pintarArchivosPira() {
+  const contenedor = $('#pira-archivos');
+  if (!contenedor) return;
+  if (!piraArchivos.length) {
+    contenedor.classList.add('oculto');
+    contenedor.innerHTML = '';
+    return;
+  }
+  contenedor.classList.remove('oculto');
+  contenedor.innerHTML = piraArchivos.map((archivo, indice) => {
+    const miniatura = esImagenPira(archivo)
+      ? `<img class="archivo-chip-miniatura" src="data:${archivo.tipo};base64,${archivo.contenido}" alt="">`
+      : UI.icono('archivo', { tamano: 16, clase: 'shrink-0 text-surface-400' });
+    return `<span class="archivo-chip">
+      ${miniatura}
+      <span class="archivo-chip-nombre" title="${esc(archivo.nombre)}">
+        ${esc(archivo.nombre)}
+      </span>
+      <button type="button" class="archivo-chip-quitar" data-quitar-archivo="${indice}"
+              aria-label="Quitar ${esc(archivo.nombre)}">&times;</button>
+    </span>`;
+  }).join('');
+}
+
+/** Resumen corto de los adjuntos, para el mensaje del usuario. */
+function resumenAdjuntosPira() {
+  if (!piraArchivos.length) return '';
+  const nombres = piraArchivos.map((a) => esc(a.nombre)).join(', ');
+  return `📎 ${piraArchivos.length === 1 ? 'Archivo' : 'Archivos'}: ${nombres}`;
 }
 
 /** Refleja en la pestaña del asistente una charla hecha desde la burbuja. */
@@ -2620,6 +2867,132 @@ async function cargarDemo(recrear) {
 // Arranque de la página
 // ============================================================================
 
+// ============================================================================
+// Inicio de sesión (prueba)
+// ============================================================================
+//
+// Es una pantalla de prueba: no hay contraseña ni usuarios en el servidor. El
+// único nombre aceptado es «Franco», y la sesión se recuerda en
+// `sessionStorage`, que se borra al cerrar la pestaña. Todo vive en el
+// navegador a propósito: es una demostración, no un sistema de seguridad.
+
+/** Nombre que acepta la pantalla de acceso, sin distinguir mayúsculas. */
+const USUARIO_DE_PRUEBA = 'franco';
+/** Clave de `sessionStorage` donde se recuerda que ya se entró. */
+const CLAVE_SESION = 'erp-sesion';
+
+/** ¿Ya se inició sesión en esta pestaña? */
+function haySesion() {
+  try {
+    return Boolean(sessionStorage.getItem(CLAVE_SESION));
+  } catch {
+    return false;
+  }
+}
+
+/** Muestra la pantalla de acceso y espera a que el usuario entre. */
+function pedirAcceso() {
+  const pantalla = $('#acceso');
+  const aplicacion = $('#aplicacion');
+  const formulario = $('#acceso-formulario');
+  const campo = $('#acceso-usuario');
+  const error = $('#acceso-error');
+  if (!pantalla || !formulario) return;
+
+  pantalla.classList.remove('oculto');
+  if (aplicacion) aplicacion.classList.add('oculto');
+
+  const mostrarError = (mensaje) => {
+    error.textContent = mensaje;
+    error.classList.remove('oculto');
+    campo.classList.add('input-error');
+    campo.focus();
+    campo.select();
+  };
+
+  const entrar = (nombre) => {
+    try {
+      sessionStorage.setItem(CLAVE_SESION, nombre);
+    } catch {
+      // Sin almacenamiento: la sesión vale solo para esta pantalla.
+    }
+    pantalla.classList.add('oculto');
+    if (aplicacion) aplicacion.classList.remove('oculto');
+    // Recién acá arranca el ERP: mientras no haya sesión, no se pide nada a
+    // la API ni se dibuja la interfaz.
+    iniciar();
+    recibirConPiraPires(nombre);
+  };
+
+  formulario.onsubmit = (evento) => {
+    evento.preventDefault();
+    const nombre = (campo.value || '').trim();
+    if (!nombre) {
+      mostrarError('Escribí tu nombre para entrar.');
+      return;
+    }
+    if (nombre.toLowerCase() !== USUARIO_DE_PRUEBA) {
+      mostrarError(`«${nombre}» no es un usuario de esta prueba. `
+        + 'Entrá con el nombre Franco.');
+      return;
+    }
+    error.classList.add('oculto');
+    campo.classList.remove('input-error');
+    entrar(nombre);
+  };
+
+  campo.oninput = () => {
+    error.classList.add('oculto');
+    campo.classList.remove('input-error');
+  };
+
+  campo.focus();
+}
+
+/** Cierra la sesión y vuelve a la pantalla de acceso. */
+function cerrarSesion() {
+  try {
+    sessionStorage.removeItem(CLAVE_SESION);
+  } catch {
+    // Nada que limpiar.
+  }
+  const campo = $('#acceso-usuario');
+  if (campo) campo.value = '';
+  pedirAcceso();
+}
+
+/**
+ * Da la bienvenida con Pira Pires al entrar.
+ *
+ * Abre el panel flotante con un saludo personalizado que se escribe solo, con
+ * la misma animación que las respuestas. No se le pregunta a la IA: el saludo
+ * es fijo, así entrar no depende de que haya internet ni gasta una consulta.
+ */
+function recibirConPiraPires(nombre) {
+  if (!piraAbierto) alternarPira(true);
+
+  const contenedor = $('#pira-historial');
+  if (!contenedor) return;
+
+  // Se limpia el historial para que la bienvenida sea lo primero que se ve.
+  contenedor.innerHTML = '';
+
+  const saludo = `¡Hola, ${nombre}! Soy **Pira Pires**, tu asistente contable.\n\n`
+    + 'Puedo ayudarte con la contabilidad y los impuestos de Paraguay: '
+    + 'el IVA (Ley N.º 1259/97), la liquidación mensual, la SET y el DNIT.\n\n'
+    + '¿Por dónde querés empezar?';
+
+  // El saludo se muestra con el avatar de la boca abierta, como si hablara.
+  marcarPiraHablando(true);
+  const burbuja = agregarBurbuja('assistant', '', null, {
+    contenedor, flotante: true,
+  });
+  animarEscritura(burbuja.cuerpo, markdownBasico(saludo), {
+    alEscribir: () => bajarAlFinal(contenedor),
+    alTerminar: () => marcarPiraHablando(false),
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   $('#btn-cargar-demo').onclick = async () => {
     const aceptado = await UI.confirmar({
@@ -2670,5 +3043,24 @@ document.addEventListener('DOMContentLoaded', () => {
     boton.onclick = () => window.print();
   });
 
-  iniciar();
+  const botonSalir = $('#btn-salir');
+  if (botonSalir) botonSalir.onclick = cerrarSesion;
+
+  // El tema se aplica antes de mostrar nada, así la pantalla de acceso ya sale
+  // con el tema elegido y no hay un destello claro.
+  iniciarTema();
+
+  // Si ya se entró en esta pestaña, se arranca directo; si no, primero la
+  // pantalla de acceso. El ERP no se carga hasta que haya sesión.
+  if (haySesion()) {
+    try {
+      $('#acceso')?.classList.add('oculto');
+      $('#aplicacion')?.classList.remove('oculto');
+    } catch {
+      // Nada que ocultar.
+    }
+    iniciar();
+  } else {
+    pedirAcceso();
+  }
 });
