@@ -20,7 +20,9 @@ variables de entorno, o en su defecto del archivo local `claves.env`
 
 En un hosting que inyecta las variables de entorno `HOST` y `PORT` —como
 Render— los valores por defecto pasan a ser esos, así que alcanza con
-`python3 main.py --auto-sembrar`.
+`python3 main.py`. El servidor arranca vacío: los datos de prueba se cargan
+a mano desde el Panel (o con `--auto-sembrar` si se quiere la demo al
+arrancar).
 
 Render solo inyecta `PORT` (no `HOST`), y exige que el servidor escuche en
 `0.0.0.0` para que su proxy pueda alcanzarlo. Por eso, cuando la variable
@@ -106,8 +108,8 @@ def _crear_parser() -> argparse.ArgumentParser:
         "--auto-sembrar", action="store_true",
         help=(
             "Al arrancar el servidor, carga los datos de prueba únicamente si "
-            "la base todavía no tiene asientos. Es lo que se usa en un hosting "
-            "con sistema de archivos efímero: nunca pisa lo que ya hay."
+            "la base todavía no tiene asientos. Es opcional: por defecto el "
+            "servidor arranca vacío y la demo se carga desde el Panel."
         ),
     )
     parser.add_argument(
