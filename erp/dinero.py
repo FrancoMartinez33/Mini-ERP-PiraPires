@@ -51,6 +51,7 @@ def _interpretar(valor) -> Decimal:
         "1500000.5" -> 1500000.50
         "1.500.000,50" -> 1500000.50   (punto = miles, coma = decimal)
         "1,500,000.50" -> 1500000.50   (coma = miles, punto = decimal)
+        "1.000"     -> 1000.00         (un punto con 3 dígitos = miles)
         "G. 1.500.000" -> 1500000.00
     """
     if isinstance(valor, bool):  # bool es subclase de int: se rechaza
@@ -99,8 +100,12 @@ def _interpretar(valor) -> Decimal:
         # Una sola coma: decimal. Varias comas: separador de miles.
         decimal = texto.replace(",", ".") if coma == 1 else texto.replace(",", "")
     elif punto:
-        # Más de un punto = separador de miles; un solo punto = decimal.
-        decimal = texto.replace(".", "") if punto > 1 else texto
+        # Convención de Paraguay y Argentina: un único punto seguido de
+        # exactamente tres dígitos es separador de miles ("1.000" = mil),
+        # no decimal. Con más de un punto también es miles. Un punto con
+        # otra cantidad de dígitos detrás se interpreta como decimal.
+        digitos_detras = len(texto) - texto.rfind(".") - 1
+        decimal = texto.replace(".", "") if punto > 1 or digitos_detras == 3 else texto
     else:
         decimal = texto
 

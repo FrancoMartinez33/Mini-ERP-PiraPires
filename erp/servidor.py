@@ -35,6 +35,7 @@ from . import iva
 from . import libro_diario
 from . import libro_mayor
 from . import plan_de_cuentas
+from . import importacion
 from . import validaciones
 from .dinero import formato_monto
 from .dinero import ErrorMonto
@@ -104,6 +105,8 @@ RUTAS: list[tuple[str, re.Pattern, str]] = [
     ("POST",   r"^/api/asistente$",                              "asistente_preguntar"),
 
     # -- Utilidades -------------------------------------------------------
+    ("POST",   r"^/api/importar/cuentas$",                         "importar_cuentas"),
+    ("POST",   r"^/api/importar/asientos$",                        "importar_asientos"),
     ("POST",   r"^/api/datos-demo$",                              "datos_demo"),
     ("POST",   r"^/api/reiniciar$",                              "reiniciar"),
 ]
@@ -837,6 +840,109 @@ class Manejador(BaseHTTPRequestHandler):
             cuerpo.get("archivos"),
         )
         self._enviar_json(resultado)
+
+    # ------------------------------------------------------------------
+    # Manejadores: importación desde CSV
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detalles_importacion(errores: list[dict], limite: int = 40) -> list[str]:
+        """Convierte los errores del importador en textos para la API."""
+        detalles = [
+            (f"Fila {e['fila']}: {e['mensaje']}" if e.get("fila") else str(e["mensaje"]))
+            for e in errores[:limite]
+        ]
+        if len(errores) > limite:
+            detalles.append(f"… y {len(errores) - limite} error(es) más.")
+        return detalles
+
+    def _manejar_importar_cuentas(self, _: dict) -> None:
+        datos = self._leer_cuerpo()
+        texto = datos.get("csv")
+        if not isinstance(texto, str) or not texto.strip():
+            raise ErrorValidacion("Seleccioná un archivo CSV con datos.")
+        confirmar = bool(datos.get("confirmar", False))
+
+        try:
+            resultado = importacion.importar_cuentas(
+                texto, self.ruta_base, confirmar=confirmar
+            )
+        except ErrorValidacion as exc:
+            if confirmar:
+                raise
+            # En la vista previa los errores de formato se muestran dentro del
+            # diálogo de importación, no como un toast genérico.
+            self._enviar_json(
+                {
+                    "tipo": "cuentas",
+                    "valido": False,
+                    "confirmado": False,
+                    "filas": 0,
+                    "a_crear": 0,
+                    "omitidas": 0,
+                    "creadas": 0,
+                    "errores": [{
+                        "fila": None, "mensaje": exc.mensaje, "regla": exc.regla,
+                    }],
+                    "muestra": [],
+                }
+            )
+            return
+
+        if confirmar and not resultado["valido"]:
+            raise ErrorValidacion(
+                f"El CSV tiene {len(resultado['errores'])} error(es): "
+                "no se importó ninguna cuenta.",
+                regla=(resultado["errores"][0].get("regla")
+                       if resultado["errores"] else None),
+                detalles=self._detalles_importacion(resultado["errores"]),
+            )
+
+        self._enviar_json(resultado, 201 if resultado["confirmado"] else 200)
+
+    def _manejar_importar_asientos(self, _: dict) -> None:
+        datos = self._leer_cuerpo()
+        texto = datos.get("csv")
+        if not isinstance(texto, str) or not texto.strip():
+            raise ErrorValidacion("Seleccioná un archivo CSV con datos.")
+        confirmar = bool(datos.get("confirmar", False))
+
+        try:
+            resultado = importacion.importar_asientos(
+                texto, self.ruta_base, confirmar=confirmar
+            )
+        except ErrorValidacion as exc:
+            if confirmar:
+                raise
+            self._enviar_json(
+                {
+                    "tipo": "asientos",
+                    "valido": False,
+                    "confirmado": False,
+                    "filas": 0,
+                    "asientos": 0,
+                    "lineas": 0,
+                    "total_debe": 0,
+                    "total_haber": 0,
+                    "creados": 0,
+                    "errores": [{
+                        "fila": None, "mensaje": exc.mensaje, "regla": exc.regla,
+                    }],
+                    "muestra": [],
+                }
+            )
+            return
+
+        if confirmar and not resultado["valido"]:
+            raise ErrorValidacion(
+                f"El CSV tiene {len(resultado['errores'])} error(es): "
+                "no se importó ningún asiento.",
+                regla=(resultado["errores"][0].get("regla")
+                       if resultado["errores"] else None),
+                detalles=self._detalles_importacion(resultado["errores"]),
+            )
+
+        self._enviar_json(resultado, 201 if resultado["confirmado"] else 200)
 
     def _manejar_datos_demo(self, _: dict) -> None:
         from . import datos_demo

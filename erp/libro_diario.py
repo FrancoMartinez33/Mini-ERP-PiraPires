@@ -258,6 +258,64 @@ def crear_asiento(
     return asiento
 
 
+def insertar_asiento_confirmado(
+    conexion,
+    *,
+    fecha: str,
+    concepto: str,
+    partidas: list[dict],
+    observaciones: str | None = None,
+) -> dict:
+    """
+    Inserta un asiento ya validado como **CONFIRMADO** en una transacción abierta.
+
+    Está pensado para la importación masiva: recibe la conexión para que todas
+    las filas del CSV se guarden juntas. La validación de las partidas (C1 y
+    C2) y de la fecha debe hacerla quien llama; acá solo se persiste.
+
+    Devuelve ``{id, numero, total_debe, total_haber}``.
+    """
+    partidas = [
+        {
+            "cuenta": str(p.get("cuenta") or "").strip(),
+            "detalle": str(p.get("detalle") or "").strip() or None,
+            "debe": int(p.get("debe") or 0),
+            "haber": int(p.get("haber") or 0),
+        }
+        for p in partidas
+    ]
+    total_debe = sum(p["debe"] for p in partidas)
+    total_haber = sum(p["haber"] for p in partidas)
+    numero = _siguiente_numero(conexion)
+
+    try:
+        cursor = conexion.execute(
+            """INSERT INTO asiento (numero, fecha, concepto, estado,
+                                    total_debe, total_haber, observaciones,
+                                    confirmado_en)
+               VALUES (?, ?, ?, 'CONFIRMADO', ?, ?, ?, datetime('now'))""",
+            (
+                numero,
+                fecha,
+                concepto,
+                total_debe,
+                total_haber,
+                str(observaciones or "").strip() or None,
+            ),
+        )
+    except sqlite3.Error as exc:
+        raise error_sql_a_mensaje(exc) from exc
+
+    asiento_id = cursor.lastrowid
+    _grabar_partidas(conexion, asiento_id, partidas)
+    return {
+        "id": asiento_id,
+        "numero": numero,
+        "total_debe": total_debe,
+        "total_haber": total_haber,
+    }
+
+
 def actualizar_asiento(
     asiento_id: int,
     *,

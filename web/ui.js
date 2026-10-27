@@ -396,6 +396,7 @@ const UI = (() => {
     const {
       titulo = '',
       descripcion = null,
+      contenido = null,
       confirmarTexto = 'Confirmar',
       cancelarTexto = 'Cancelar',
       variant = 'primary',
@@ -415,7 +416,7 @@ const UI = (() => {
       fondo.innerHTML = `
         <div class="dialog" role="dialog" aria-modal="true"
              aria-labelledby="${idTitulo}"${
-               descripcion ? `\n             aria-describedby="${idCuerpo}"` : ''}>
+               (descripcion || contenido) ? `\n             aria-describedby="${idCuerpo}"` : ''}>
           <div class="dialog-header">
             ${iconoNombre ? `<span class="shrink-0 text-surface-500">${icono(iconoNombre, { tamano: 20 })}</span>` : ''}
             <div class="min-w-0">
@@ -423,7 +424,11 @@ const UI = (() => {
             </div>
           </div>
           <div class="dialog-body space-y-3">
-            ${descripcion ? `<p id="${idCuerpo}" class="text-sm text-surface-600">${descripcion}</p>` : ''}
+            ${contenido
+              ? `<div id="${idCuerpo}" class="text-sm text-surface-600">${contenido}</div>`
+              : descripcion
+                ? `<p id="${idCuerpo}" class="text-sm text-surface-600">${descripcion}</p>`
+                : ''}
             ${campo ? campoHTML({
               id: idCampo,
               label: campo.etiqueta,
@@ -440,8 +445,8 @@ const UI = (() => {
             }) : ''}
           </div>
           <div class="dialog-footer">
-            <button type="button" class="btn btn-md btn-secondary-outline"
-                    data-accion="cancelar">${escapar(cancelarTexto ?? 'Cancelar')}</button>
+            ${cancelarTexto === null ? '' : `<button type="button" class="btn btn-md btn-secondary-outline"
+                    data-accion="cancelar">${escapar(cancelarTexto)}</button>`}
             <button type="button"
                     class="btn btn-md btn-${variant}-fill"
                     data-accion="confirmar">${escapar(confirmarTexto)}</button>

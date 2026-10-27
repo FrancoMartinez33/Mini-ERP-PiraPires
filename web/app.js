@@ -286,6 +286,7 @@ function conectarApp() {
   $('#btn-refrescar').onclick = () => refrescarVista(estado.vista);
   $('#filtro-desde').onchange = leerPeriodo;
   $('#filtro-hasta').onchange = leerPeriodo;
+  conectarImportadores();
 }
 
 // ============================================================================
@@ -547,6 +548,332 @@ async function cargarPanel() {
       </div>`).join('');
   } catch (error) {
     avisarError(error);
+  }
+}
+
+// ============================================================================
+// Importación de datos propios desde CSV
+// ============================================================================
+
+/** El servidor acepta cuerpos de hasta 2 MB; dejamos margen para el JSON. */
+const LIMITE_CSV_BYTES = 1.5 * 1024 * 1024;
+
+/** Tabla de errores de importación, con los valores siempre escapados. */
+function tablaErroresImportacion(errores) {
+  const lista = Array.isArray(errores) ? errores : [];
+  if (!lista.length) return '';
+  const limite = 40;
+  const filas = lista.slice(0, limite).map((error) => `
+    <tr>
+      <td class="whitespace-nowrap pr-3 align-top font-mono text-xs text-surface-500">
+        ${error.fila == null ? '—' : esc(error.fila)}
+      </td>
+      <td class="align-top">${esc(error.mensaje || 'Error desconocido')}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="max-h-64 overflow-auto rounded-field border border-danger-200 bg-danger-50/40">
+      <table class="table text-xs">
+        <thead>
+          <tr><th class="w-14">Fila</th><th>Problema</th></tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
+    ${lista.length > limite
+      ? `<p class="text-xs text-surface-500">…y ${lista.length - limite} error(es) más.</p>`
+      : ''}`;
+}
+
+function contenidoErroresImportacion(previa) {
+  return `
+    <div class="space-y-3">
+      <p><strong>No se importó nada.</strong> Corregí el archivo y volvé a intentarlo.</p>
+      ${tablaErroresImportacion(previa.errores)}
+    </div>`;
+}
+
+function tablaMuestraCuentas(muestra) {
+  const filas = (muestra || []).map((cuenta) => `
+    <tr>
+      <td class="whitespace-nowrap font-mono text-xs">${esc(cuenta.codigo)}</td>
+      <td>${esc(cuenta.nombre)}</td>
+      <td class="whitespace-nowrap">${esc(CLASIFICACION[cuenta.clasificacion] || cuenta.clasificacion)}</td>
+      <td class="whitespace-nowrap">${esc(cuenta.naturaleza || '—')}</td>
+      <td class="whitespace-nowrap">${cuenta.recibe_movimiento ? 'Detalle' : 'Agrupadora'}</td>
+      <td class="whitespace-nowrap">${esc(cuenta.estado)}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="max-h-52 overflow-auto rounded-field border border-surface-200">
+      <table class="table text-xs">
+        <thead>
+          <tr>
+            <th>Código</th><th>Nombre</th><th>Clasificación</th>
+            <th>Nat.</th><th>Tipo</th><th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+}
+
+function contenidoPrevioCuentas(previa) {
+  return `
+    <div class="space-y-3">
+      <p>
+        Se van a crear <strong>${esc(previa.a_crear)}</strong> cuenta(s) nueva(s).
+        ${previa.omitidas
+          ? `Se omitirán <strong>${esc(previa.omitidas)}</strong> que ya existen.`
+          : ''}
+      </p>
+      ${tablaMuestraCuentas(previa.muestra)}
+      <p class="text-xs text-surface-500">
+        Todo se guarda en una sola operación: si algo falla, no se crea ninguna cuenta.
+      </p>
+    </div>`;
+}
+
+function tablaMuestraAsientos(muestra) {
+  const filas = (muestra || []).map((asiento) => `
+    <tr>
+      <td class="whitespace-nowrap font-mono text-xs">${esc(asiento.asiento)}</td>
+      <td class="whitespace-nowrap">${esc(fmtFecha(asiento.fecha))}</td>
+      <td>${esc(asiento.concepto)}</td>
+      <td class="text-center">${esc(asiento.lineas)}</td>
+      <td class="whitespace-nowrap text-right tabular-nums">${esc(fmt(asiento.debe))}</td>
+      <td class="whitespace-nowrap text-right tabular-nums">${esc(fmt(asiento.haber))}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="max-h-52 overflow-auto rounded-field border border-surface-200">
+      <table class="table text-xs">
+        <thead>
+          <tr>
+            <th>Asiento</th><th>Fecha</th><th>Concepto</th>
+            <th class="text-center">Líneas</th>
+            <th class="text-right">Debe</th><th class="text-right">Haber</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+}
+
+function contenidoPrevioAsientos(previa) {
+  return `
+    <div class="space-y-3">
+      <p>
+        Se van a importar <strong>${esc(previa.asientos)}</strong> asiento(s)
+        (<strong>${esc(previa.lineas)}</strong> líneas) como <strong>CONFIRMADOS</strong>.
+      </p>
+      <p class="text-xs text-surface-500">
+        Total Debe: <strong>${esc(fmt(previa.total_debe))}</strong> ·
+        Total Haber: <strong>${esc(fmt(previa.total_haber))}</strong>
+      </p>
+      ${tablaMuestraAsientos(previa.muestra)}
+      <p class="text-xs text-surface-500">
+        Todo se guarda en una sola operación: si algo falla, no se importa ningún asiento.
+      </p>
+    </div>`;
+}
+
+/** Lee el archivo como UTF-8 y valida el tamaño antes de enviarlo. */
+async function leerArchivoCSV(archivo) {
+  if (!archivo) return null;
+  if (archivo.size > LIMITE_CSV_BYTES) {
+    avisar(
+      'El archivo supera el máximo de 1,5 MB. Dividilo en partes más chicas.',
+      'danger',
+      'Archivo demasiado grande',
+    );
+    return null;
+  }
+  try {
+    const texto = await archivo.text();
+    if (!texto.trim()) {
+      avisar('El archivo está vacío.', 'danger', 'CSV vacío');
+      return null;
+    }
+    return texto;
+  } catch {
+    avisar('No se pudo leer el archivo.', 'danger', 'Error al leer el CSV');
+    return null;
+  }
+}
+
+async function importarCuentasCSV(archivo) {
+  const texto = await leerArchivoCSV(archivo);
+  if (texto === null) return;
+
+  let previa;
+  try {
+    previa = await api('/api/importar/cuentas', {
+      method: 'POST',
+      body: { csv: texto, confirmar: false },
+    });
+  } catch (error) {
+    avisarError(error);
+    return;
+  }
+
+  if (!previa.valido) {
+    await UI.abrirDialogo({
+      titulo: 'El CSV de cuentas tiene errores',
+      contenido: contenidoErroresImportacion(previa),
+      confirmarTexto: 'Entendido',
+      cancelarTexto: null,
+      variant: 'danger',
+      icono: 'alerta',
+    });
+    return;
+  }
+
+  if (!previa.a_crear) {
+    await UI.abrirDialogo({
+      titulo: 'No hay cuentas nuevas',
+      contenido: `<p>Las ${esc(previa.filas)} fila(s) del archivo ya existen en el plan
+        de cuentas. No se modificó nada.</p>`,
+      confirmarTexto: 'Entendido',
+      cancelarTexto: null,
+      icono: 'info',
+    });
+    return;
+  }
+
+  const aceptado = await UI.abrirDialogo({
+    titulo: 'Importar plan de cuentas',
+    contenido: contenidoPrevioCuentas(previa),
+    confirmarTexto: `Importar ${previa.a_crear} cuenta(s)`,
+    cancelarTexto: 'Cancelar',
+    variant: 'primary',
+    icono: 'archivo',
+  });
+  if (!aceptado) return;
+
+  try {
+    const resultado = await api('/api/importar/cuentas', {
+      method: 'POST',
+      body: { csv: texto, confirmar: true },
+    });
+    avisar(
+      `Se importaron ${resultado.creadas} cuenta(s).` +
+        (resultado.omitidas ? ` Se omitieron ${resultado.omitidas} que ya existían.` : ''),
+      'success',
+      'Plan de cuentas actualizado',
+    );
+    await Promise.all([cargarCuentas(), cargarPanel()]);
+  } catch (error) {
+    avisarError(error);
+  }
+}
+
+async function importarAsientosCSV(archivo) {
+  const texto = await leerArchivoCSV(archivo);
+  if (texto === null) return;
+
+  let previa;
+  try {
+    previa = await api('/api/importar/asientos', {
+      method: 'POST',
+      body: { csv: texto, confirmar: false },
+    });
+  } catch (error) {
+    avisarError(error);
+    return;
+  }
+
+  if (!previa.valido) {
+    await UI.abrirDialogo({
+      titulo: 'El CSV de asientos tiene errores',
+      contenido: contenidoErroresImportacion(previa),
+      confirmarTexto: 'Entendido',
+      cancelarTexto: null,
+      variant: 'danger',
+      icono: 'alerta',
+    });
+    return;
+  }
+
+  if (!previa.asientos) {
+    await UI.abrirDialogo({
+      titulo: 'No hay asientos para importar',
+      contenido: '<p>El archivo no contiene asientos con líneas.</p>',
+      confirmarTexto: 'Entendido',
+      cancelarTexto: null,
+      icono: 'info',
+    });
+    return;
+  }
+
+  const aceptado = await UI.abrirDialogo({
+    titulo: 'Importar asientos',
+    contenido: contenidoPrevioAsientos(previa),
+    confirmarTexto: `Importar ${previa.asientos} asiento(s)`,
+    cancelarTexto: 'Cancelar',
+    variant: 'primary',
+    icono: 'archivo',
+  });
+  if (!aceptado) return;
+
+  try {
+    const resultado = await api('/api/importar/asientos', {
+      method: 'POST',
+      body: { csv: texto, confirmar: true },
+    });
+    avisar(
+      `Se importaron ${resultado.creados} asiento(s) confirmados.`,
+      'success',
+      'Libro Diario actualizado',
+    );
+    await Promise.all([cargarDiario(), cargarPanel()]);
+  } catch (error) {
+    avisarError(error);
+  }
+}
+
+/** Conecta los botones de importación y los dos inputs de archivo compartidos. */
+function conectarImportadores() {
+  const disparadores = [
+    ['#panel-importar-cuentas', '#archivo-cuentas'],
+    ['#btn-importar-cuentas', '#archivo-cuentas'],
+    ['#panel-importar-asientos', '#archivo-asientos'],
+    ['#btn-importar-asientos', '#archivo-asientos'],
+  ];
+
+  disparadores.forEach(([botonSelector, inputSelector]) => {
+    const boton = $(botonSelector);
+    if (!boton) return;
+    boton.addEventListener('click', () => {
+      const input = $(inputSelector);
+      if (!input) return;
+      input.value = '';
+      input.click();
+    });
+  });
+
+  const archivoCuentas = $('#archivo-cuentas');
+  if (archivoCuentas) {
+    archivoCuentas.addEventListener('change', async (evento) => {
+      const archivo = evento.target.files?.[0] || null;
+      try {
+        await importarCuentasCSV(archivo);
+      } finally {
+        evento.target.value = '';
+      }
+    });
+  }
+
+  const archivoAsientos = $('#archivo-asientos');
+  if (archivoAsientos) {
+    archivoAsientos.addEventListener('change', async (evento) => {
+      const archivo = evento.target.files?.[0] || null;
+      try {
+        await importarAsientosCSV(archivo);
+      } finally {
+        evento.target.value = '';
+      }
+    });
   }
 }
 

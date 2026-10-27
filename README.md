@@ -59,6 +59,63 @@ datos de la empresa. En el Panel se muestra el **perfil cargado en el acceso**,
 y los cambios que se hagan en «Datos de la empresa» también se guardan en la
 cuenta del navegador.
 
+### Importar tus datos desde un CSV
+
+Además de la carga manual y de los datos de prueba, el plan de cuentas y el
+Libro Diario se pueden cargar desde un archivo **CSV**. Los botones están en
+**Panel → «Cargar tus propios datos»** y también en las cabeceras de **Plan de
+cuentas** y **Libro Diario**. Las plantillas descargables viven en
+`web/plantillas/`:
+
+- `web/plantillas/cuentas.csv` — plan de cuentas de ejemplo.
+- `web/plantillas/asientos.csv` — dos asientos de ejemplo, ya cuadrados.
+
+**Plan de cuentas.** Columnas:
+
+```csv
+codigo;nombre;clasificacion;naturaleza;tipo;estado
+1;ACTIVO;1;;agrupadora;ACTIVA
+1.1.01;Caja;1;D;detalle;ACTIVA
+```
+
+- `codigo` y `nombre` son obligatorios.
+- `clasificacion` acepta `1` a `6` o el nombre (`ACTIVO`, `PASIVO`,
+  `PATRIMONIO NETO`, `INGRESOS`, `COSTOS`, `GASTOS`). Si se deja vacía, se
+  deduce del primer dígito del código.
+- `naturaleza` acepta `D`/`A` (o «deudora»/«acreedora»). Si se deja vacía, se
+  deduce de la clasificación; la Depreciación Acumulada es el caso especial de
+  activo con naturaleza acreedora.
+- `tipo` acepta `detalle` o `agrupadora`. Si se deja vacío, las cuentas de
+  primer nivel y las que tienen subcuentas quedan como agrupadoras.
+- `estado` acepta `ACTIVA` o `INACTIVA`; si se deja vacío, es `ACTIVA`.
+- Las cuentas que ya existen **se omiten**; no se actualizan desde el CSV.
+
+**Libro Diario.** Columnas:
+
+```csv
+asiento;fecha;concepto;cuenta;detalle;debe;haber
+1;2026-01-10;Venta al contado;1.1.01;Cobro;1.100.000,00;
+1;2026-01-10;Venta al contado;4.1.01;Venta gravada;;1.000.000,00
+1;2026-01-10;Venta al contado;2.1.02;IVA débito fiscal;;100.000,00
+```
+
+- `asiento` agrupa las líneas. Si no se incluye esa columna, se agrupan las
+  filas consecutivas que comparten la misma fecha y concepto.
+- `fecha` acepta `AAAA-MM-DD` o `DD/MM/AAAA`. Los importes usan el formato
+  paraguayo (`1.100.000,00`). Si la planilla usa coma decimal, conviene guardar
+  el CSV con punto y coma (`;`) como separador, que es lo que hace Excel en
+  español.
+- Cada asiento debe tener al menos dos líneas, cuentas existentes, activas y de
+  detalle, y el total Debe debe ser igual al total Haber. Se importa
+  directamente como **CONFIRMADO**.
+- El importador valida todo primero y muestra una vista previa con el resumen.
+  Si una sola fila falla, **no se guarda nada** y se indica el número de fila
+  del archivo para corregirla.
+
+El separador puede ser coma, punto y coma, tabulador o barra vertical: se
+detecta solo. El archivo se lee como UTF-8 y el máximo es **1,5 MB**. Recordá
+que el orden importa: primero las cuentas y después los asientos.
+
 ### La interfaz
 
 Está hecha con **Tailwind CSS v4**, el mismo motor que usa 21st.dev, cargado
@@ -106,7 +163,7 @@ que `web/ui.js` reproduce ese contrato a mano sobre Tailwind v4:
 | **Button** | `variant` · `appearance` · `size` · `iconOnly` · `pending` · `disabled` · `readOnly` · `onPress` | `variant` y `appearance` se combinan libres (`danger` + `outline`), y `pending` atenúa el contenido marcando `aria-busy` **sin quitar el foco** |
 | **Badge** | `variant` · `appearance` (`light`/`solid`) · `iconName` | Estados de los asientos y de los controles |
 | **Field** | `label` · `description` · `errorMessage` · `isRequired` | Agrupa etiqueta, control, ayuda y error, con el `id` ya enlazado por `for` |
-| **Dialog** | `titulo` · `descripcion` · `campo` · `onConfirmar` | Modal con foco atrapado (Tab y Shift+Tab circulan dentro), cierre con `Esc`, scroll bloqueado y el foco devuelto al elemento que lo abrió. Reemplaza a `confirm()` y `prompt()`, que son bloqueantes y no se pueden leer con lector de pantalla |
+| **Dialog** | `titulo` · `descripcion` · `contenido` · `campo` · `onConfirmar` | Modal con foco atrapado (Tab y Shift+Tab circulan dentro), cierre con `Esc`, scroll bloqueado y el foco devuelto al elemento que lo abrió. `contenido` permite mostrar HTML ya escapado (por ejemplo, la vista previa de una importación). Reemplaza a `confirm()` y `prompt()`, que son bloqueantes y no se pueden leer con lector de pantalla |
 | **Toast** | `variant` · `title` · `description` · `detalles` | Avisos en una región `aria-live="polite"`: se anuncian sin robar el foco |
 | **Tabs** | navegación con teclado | Los dos menús (lateral y móvil) controlan los mismos paneles: flechas y `Home`/`End` recorren las pestañas, con *roving tabindex* para que el Tab no haga seis paradas |
 
@@ -116,7 +173,7 @@ respetar el diseño de la aplicación.
 
 | Vista | Qué muestra |
 |-------|-------------|
-| **Panel** | Indicadores del período, estado de los 6 controles, datos de la empresa, carga de datos de prueba |
+| **Panel** | Indicadores del período, estado de los 6 controles, datos de la empresa, carga de datos propios desde CSV y datos de prueba |
 | **Plan de cuentas** | Alta / edición / baja de cuentas, con validación del código y de la clasificación |
 | **Libro Diario** | Alta de asientos con partidas dinámicas, cuadre en vivo, ciclo de vida completo |
 | **Libro Mayor** | Movimiento de una cuenta o de todas, con saldo acumulado en cada línea |
@@ -544,6 +601,8 @@ códigos HTTP con sentido.
 | POST | `/api/iva/liquidar` | Contabilizar la liquidación del período |
 | GET | `/api/asistente/configuracion` | Estado de los proveedores de la IA |
 | POST | `/api/asistente` | Consultar a Pira Pires (acepta `archivos` en base64) |
+| POST | `/api/importar/cuentas` | Validar (vista previa) o importar un plan de cuentas CSV |
+| POST | `/api/importar/asientos` | Validar (vista previa) o importar asientos CSV |
 | POST | `/api/datos-demo` | Cargar las 15 operaciones |
 | POST | `/api/reiniciar` | Vaciar la base |
 
