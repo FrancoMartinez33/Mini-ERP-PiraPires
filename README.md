@@ -127,7 +127,15 @@ movió el puntero.
 Cuando Pira Pires termina de responder con el panel cerrado, aparece un
 **puntito de aviso** sobre la burbuja, como el de Messenger; se apaga solo al
 abrir el chat. Al pasar el mouse por la burbuja aparece además un botón de
-**basura** que la quita de la pantalla (vuelve recargando la página).
+**basura** que la quita de la pantalla (en el celular se ve siempre). Antes de
+quitarla pide confirmación y el aviso que aparece trae un **«Deshacer»**.
+
+**Pira Pires pregunta antes de calcular sueldos.** Cuando la consulta es sobre
+salarios, aguinaldo o liquidación de empleados, no tira el neto de una: primero
+pregunta si corresponde el descuento del **IPS** (aporte obrero del 9 %), si hay
+otros descuentos (anticipos, préstamos, embargos), si entran aguinaldo u horas
+extras y si hay que registrar el aporte patronal. Recién con esas respuestas
+hace el cálculo renglón por renglón.
 
 La foto del asistente es un pez: **boca cerrada** cuando escucha y **boca
 abierta** mientras redacta. Las respuestas no aparecen de golpe: se **escriben
