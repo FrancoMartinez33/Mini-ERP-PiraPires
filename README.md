@@ -226,12 +226,15 @@ se eligió la más cercana a Paraguay.
 Queda un `startCommand` de una línea:
 
 ```
-python3 main.py --auto-sembrar
+python3 main.py
 ```
 
 `main.py` lee `HOST` y `PORT` del entorno, que es como Render indica que
-tiene que escuchar un servicio. `--auto-sembrar` carga los datos de prueba
-**solo si la base no tiene asientos**, así que nunca pisa lo que haya.
+tiene que escuchar un servicio. El servidor **arranca sin ningún dato
+cargado**: sin asientos, sin plan de cuentas y con los datos de la empresa
+en blanco. Si se quiere ver la demostración, se carga desde el Panel con
+«Cargar datos de prueba» (pide confirmación porque reemplaza las cuentas
+existentes).
 
 > **Ojo con `HOST`.** Render solo inyecta `PORT` (10000 por defecto) y
 > exige que el servidor escuche en `0.0.0.0`, no en `127.0.0.1`: si escucha
@@ -264,10 +267,12 @@ antes de mirar la URL:
 | Se apaga a los 15 min | Y **al apagarse también se borra el disco**. Los asientos que cargues se pierden. |
 | 750 horas por mes | Suficiente para una demostración. |
 
-Por eso el arranque siembra los datos de prueba solo: la aplicación siempre
-está lista para usar, y simplemente empieza de cero. Para que los datos
-sobrevivan de verdad hace falta un plan pago con disco persistente, y en
-ese caso `--auto-sembrar` no toca nada porque detecta que ya hay asientos.
+Por eso el arranque **no siembra nada**: cada vez que el servicio se
+reinicia, la aplicación vuelve a quedar vacía (empresa, cuentas y asientos
+en blanco), lista para cargar un ejercicio desde cero. Para que los datos
+sobrevivan de verdad hace falta un plan pago con disco persistente; en ese
+caso conviene agregar `--auto-sembrar` al `startCommand` para que la demo
+se cargue sola cuando la base está vacía.
 
 ### Decisiones de diseño
 

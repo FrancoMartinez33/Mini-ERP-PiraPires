@@ -15,8 +15,8 @@ services:
     runtime: python
 
     # El plan gratuito no pide tarjeta. Se apaga a los 15 minutos de
-    # inactividad y su disco es efímero: los datos vuelven a sembrarse
-    # solos en el arranque, gracias a `--auto-sembrar`.
+    # inactividad y su disco es efímero: en cada arranque la base vuelve a
+    # quedar vacía. Los datos de prueba se cargan a mano desde el Panel.
     plan: free
 
     # Render no deja cambiar la región después de crear el servicio.
@@ -24,7 +24,11 @@ services:
     region: ohio
 
     buildCommand: pip install -r requirements.txt
-    startCommand: python3 main.py --auto-sembrar
+    # Sin `--auto-sembrar`: el sistema arranca sin ningún dato cargado
+    # (sin empresa, sin cuentas y sin asientos). Así cada estudiante empieza
+    # de cero; si quiere la demostración, la carga desde el Panel, donde se
+    # pide confirmación porque reemplaza el plan de cuentas.
+    startCommand: python3 main.py
 
     # Endpoint barato que devuelve 200 si el servidor responde.
     healthCheckPath: /api/controles
