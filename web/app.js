@@ -383,14 +383,18 @@ async function cargarEmpresa() {
   try {
     estado.empresa = await api('/api/empresa');
     estado.moneda = estado.empresa.moneda || 'G.';
-    // El nombre que se muestra es el del usuario que entró: es una prueba de
-    // un solo usuario, y así el sistema queda «a nombre» de quien lo usa. Los
-    // demás datos de la empresa (CUIT, actividad, ejercicio) siguen siendo los
-    // que estén guardados.
-    const usuario = nombreDeSesion();
-    $('#empresa-nombre').textContent = usuario || estado.empresa.nombre || 'Mi empresa';
+
+    const sesion = leerSesion();
+    const perfil = perfilDeSesion();
+    // En modo empresa manda la razón social; en modo individual se mantiene el
+    // nombre del usuario, como en la prueba de un solo usuario.
+    const nombreMostrado = perfil
+      ? (estado.empresa.nombre || perfil.razonSocial || 'Mi empresa')
+      : (sesion?.usuario || estado.empresa.nombre || 'Mi empresa');
+    $('#empresa-nombre').textContent = nombreMostrado;
     $('#empresa-detalle').textContent = [
-      estado.empresa.cuit && `CUIT ${estado.empresa.cuit}`,
+      estado.empresa.cuit && `RUC ${estado.empresa.cuit}`,
+      perfil?.tipoNombre,
       estado.empresa.actividad,
       estado.empresa.ejercicio_inicio &&
         `Ejercicio ${fmtFecha(estado.empresa.ejercicio_inicio)} – ${fmtFecha(estado.empresa.ejercicio_fin)}`,
@@ -401,19 +405,21 @@ async function cargarEmpresa() {
     estado.periodo = { desde: $('#filtro-desde').value, hasta: $('#filtro-hasta').value };
 
     pintarFormularioEmpresa();
+    pintarPerfilEmpresa();
   } catch (error) {
     avisarError(error);
   }
 }
 
 function pintarFormularioEmpresa() {
-  // El nombre lo pone el usuario que entró: el campo se muestra con ese valor
-  // y no se deja editar a mano, para que la barra superior y el formulario no
-  // se contradigan. Al guardar, se manda igual, así queda consistente.
-  const usuario = nombreDeSesion();
+  // En modo empresa manda la razón social que se cargó en el acceso y se
+  // puede editar desde acá. En modo individual se mantiene el nombre del
+  // usuario que entró, bloqueado, como en la prueba de un solo usuario.
+  const perfil = perfilDeSesion();
+  const usuario = perfil ? '' : nombreDeSesion();
   const campos = [
     ['nombre', 'Nombre o razón social', 'text'],
-    ['cuit', 'CUIT / RUC', 'text'],
+    ['cuit', 'RUC', 'text'],
     ['actividad', 'Actividad principal', 'text'],
     ['ejercicio_inicio', 'Inicio del ejercicio', 'date'],
     ['ejercicio_fin', 'Fin del ejercicio', 'date'],
@@ -450,12 +456,16 @@ function pintarFormularioEmpresa() {
       if (usuario) datos.nombre = usuario;
       estado.empresa = await api('/api/empresa', { method: 'PUT', body: datos });
       estado.moneda = estado.empresa.moneda || 'G.';
+      // La cuenta de acceso también se actualiza: el próximo ingreso vuelve a
+      // dejar la empresa tal como quedó guardada acá.
+      if (perfil) actualizarCuentaEmpresa(datos);
       avisar('Datos de la empresa actualizados.', 'success');
       await cargarPanel();
-      // Se vuelve a pintar con el nombre del usuario, no con el de la base.
+      pintarPerfilEmpresa();
       $('#empresa-nombre').textContent = usuario || estado.empresa.nombre;
       $('#empresa-detalle').textContent = [
-        estado.empresa.cuit && `CUIT ${estado.empresa.cuit}`,
+        estado.empresa.cuit && `RUC ${estado.empresa.cuit}`,
+        perfilDeSesion()?.tipoNombre,
         estado.empresa.actividad,
       ].filter(Boolean).join(' · ');
     } catch (error) {
@@ -3044,106 +3054,874 @@ async function cargarDemo(recrear) {
 // ============================================================================
 
 // ============================================================================
-// Inicio de sesión (prueba)
+// Acceso: cuenta de empresa o uso individual
 // ============================================================================
 //
-// Es una pantalla de prueba: no hay contraseña ni usuarios en el servidor. El
-// único nombre aceptado es «Franco», y la sesión se recuerda en
-// `sessionStorage`, que se borra al cerrar la pestaña. Todo vive en el
-// navegador a propósito: es una demostración, no un sistema de seguridad.
+// Es una pantalla de demostración: no hay usuarios en el servidor. La cuenta
+// de empresa se guarda en `localStorage` (con la contraseña como huella
+// SHA-256 y una sal) y la sesión en `sessionStorage`, que se borra al cerrar
+// la pestaña. El modo individual es fijo: usuario Franco, contraseña Franco.
+//
+// La empresa es única por instalación: al entrar se copian sus datos a la
+// tabla `empresa`, que es la que usa el ERP en la barra y en el Panel.
 
-/** Nombre que acepta la pantalla de acceso, sin distinguir mayúsculas. */
-const USUARIO_DE_PRUEBA = 'franco';
-/** Clave de `sessionStorage` donde se recuerda que ya se entró. */
+/** Usuario y contraseña del modo individual (sin distinguir mayúsculas). */
+const USUARIO_INDIVIDUAL = 'Franco';
+const CLAVE_INDIVIDUAL = 'Franco';
+
+/** Claves de almacenamiento: sesión (pestaña) y cuenta de empresa (navegador). */
 const CLAVE_SESION = 'erp-sesion';
+const CLAVE_CUENTA_EMPRESA = 'erp-cuenta-empresa';
 
-/** ¿Ya se inició sesión en esta pestaña? */
-function haySesion() {
+/** Departamentos de Paraguay (más Asunción, que es distrito capital). */
+const DEPARTAMENTOS = [
+  'Asunción', 'Concepción', 'San Pedro', 'Cordillera', 'Guairá', 'Caaguazú',
+  'Caazapá', 'Itapúa', 'Misiones', 'Paraguarí', 'Alto Paraná', 'Central',
+  'Ñeembucú', 'Amambay', 'Canindeyú', 'Presidente Hayes', 'Boquerón',
+  'Alto Paraguay',
+];
+
+/**
+ * Figuras jurídicas que existen en Paraguay, con los datos propios de cada
+ * una. Los campos comunes (razón social, RUC, actividad, ejercicio, moneda,
+ * usuario y contraseña) se piden siempre; acá van solo los adicionales.
+ */
+const TIPOS_EMPRESA = [
+  {
+    id: 'unipersonal',
+    nombre: 'Empresa unipersonal (persona física)',
+    campos: [
+      { clave: 'titular', etiqueta: 'Nombre y apellido del titular', tipo: 'text', requerido: true, ancho: true },
+      { clave: 'cedula', etiqueta: 'Cédula de identidad', tipo: 'text', inputmode: 'numeric' },
+    ],
+  },
+  {
+    id: 'sa',
+    nombre: 'Sociedad Anónima (S.A.)',
+    campos: [
+      { clave: 'capital', etiqueta: 'Capital social suscripto (G.)', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'accionistas', etiqueta: 'Cantidad de accionistas', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'presidente', etiqueta: 'Presidente del directorio', tipo: 'text', ancho: true },
+    ],
+  },
+  {
+    id: 'srl',
+    nombre: 'Sociedad de Responsabilidad Limitada (S.R.L.)',
+    campos: [
+      { clave: 'capital', etiqueta: 'Capital social (G.)', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'socios', etiqueta: 'Cantidad de socios (2 a 25)', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'gerente', etiqueta: 'Gerente o administrador', tipo: 'text', ancho: true },
+    ],
+  },
+  {
+    id: 'eas',
+    nombre: 'Empresa por Acciones Simplificada (E.A.S.)',
+    campos: [
+      { clave: 'capital', etiqueta: 'Capital social (G.)', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'accionistaUnico', etiqueta: 'Accionista único', tipo: 'text' },
+    ],
+  },
+  {
+    id: 'colectiva',
+    nombre: 'Sociedad Colectiva',
+    campos: [
+      { clave: 'socios', etiqueta: 'Cantidad de socios', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'sociosNombres', etiqueta: 'Socios (nombres separados por coma)', tipo: 'text', ancho: true },
+    ],
+  },
+  {
+    id: 'comandita_simple',
+    nombre: 'Sociedad en Comandita Simple',
+    campos: [
+      { clave: 'comanditados', etiqueta: 'Socios comanditados', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'comanditarios', etiqueta: 'Socios comanditarios', tipo: 'text', inputmode: 'numeric' },
+    ],
+  },
+  {
+    id: 'comandita_acciones',
+    nombre: 'Sociedad en Comandita por Acciones',
+    campos: [
+      { clave: 'capital', etiqueta: 'Capital social (G.)', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'comanditados', etiqueta: 'Socios comanditados', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'comanditarios', etiqueta: 'Socios comanditarios', tipo: 'text', inputmode: 'numeric' },
+    ],
+  },
+  {
+    id: 'capital_industria',
+    nombre: 'Sociedad de Capital e Industria',
+    campos: [
+      { clave: 'sociosCapitalistas', etiqueta: 'Socios capitalistas', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'sociosIndustriales', etiqueta: 'Socios industriales', tipo: 'text', inputmode: 'numeric' },
+    ],
+  },
+  {
+    id: 'accidental',
+    nombre: 'Sociedad accidental (cuentas en participación)',
+    campos: [
+      { clave: 'gestor', etiqueta: 'Socio gestor', tipo: 'text' },
+      { clave: 'participes', etiqueta: 'Cantidad de partícipes', tipo: 'text', inputmode: 'numeric' },
+    ],
+  },
+  {
+    id: 'cooperativa',
+    nombre: 'Cooperativa',
+    campos: [
+      { clave: 'registroIncoop', etiqueta: 'Registro en el INCOOP', tipo: 'text' },
+      { clave: 'asociados', etiqueta: 'Cantidad de asociados', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'consejo', etiqueta: 'Consejo de administración', tipo: 'text', ancho: true },
+    ],
+  },
+  {
+    id: 'asociacion',
+    nombre: 'Asociación sin fines de lucro',
+    campos: [
+      { clave: 'personeria', etiqueta: 'Personería jurídica (resolución)', tipo: 'text' },
+      { clave: 'fin', etiqueta: 'Fin de la asociación', tipo: 'text', ancho: true },
+    ],
+  },
+  {
+    id: 'fundacion',
+    nombre: 'Fundación',
+    campos: [
+      { clave: 'personeria', etiqueta: 'Personería jurídica (resolución)', tipo: 'text' },
+      { clave: 'fin', etiqueta: 'Fin de la fundación', tipo: 'text', ancho: true },
+    ],
+  },
+  {
+    id: 'sucursal',
+    nombre: 'Sucursal de sociedad extranjera',
+    campos: [
+      { clave: 'casaMatriz', etiqueta: 'Casa matriz', tipo: 'text', ancho: true },
+      { clave: 'paisOrigen', etiqueta: 'País de origen', tipo: 'text' },
+      { clave: 'capitalAsignado', etiqueta: 'Capital asignado (G.)', tipo: 'text', inputmode: 'numeric' },
+    ],
+  },
+  {
+    id: 'consorcio',
+    nombre: 'Consorcio / Unión Transitoria de Empresas (UTE)',
+    campos: [
+      { clave: 'integrantes', etiqueta: 'Empresas integrantes', tipo: 'text', ancho: true },
+      { clave: 'objeto', etiqueta: 'Objeto del consorcio', tipo: 'text', ancho: true },
+    ],
+  },
+  {
+    id: 'economia_mixta',
+    nombre: 'Sociedad de Economía Mixta (SEM)',
+    campos: [
+      { clave: 'participacionEstatal', etiqueta: 'Participación estatal (%)', tipo: 'text', inputmode: 'numeric' },
+      { clave: 'sociosPrivados', etiqueta: 'Socios privados', tipo: 'text', inputmode: 'numeric' },
+    ],
+  },
+];
+
+/** Lee un objeto JSON de un almacenamiento, sin romper si está corrupto. */
+function leerJson(clave, almacen) {
   try {
-    return Boolean(sessionStorage.getItem(CLAVE_SESION));
+    const crudo = almacen.getItem(clave);
+    return crudo ? JSON.parse(crudo) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Cuenta de empresa guardada en este navegador, o null. */
+function cuentaEmpresaGuardada() {
+  const cuenta = leerJson(CLAVE_CUENTA_EMPRESA, localStorage);
+  return cuenta && cuenta.perfil ? cuenta : null;
+}
+
+/** Guarda la cuenta de empresa; devuelve false si el navegador no la acepta. */
+function guardarCuentaEmpresa(cuenta) {
+  try {
+    localStorage.setItem(CLAVE_CUENTA_EMPRESA, JSON.stringify(cuenta));
+    return true;
   } catch {
     return false;
   }
 }
 
-/** Nombre del usuario que entró, o cadena vacía si todavía no hay sesión. */
-function nombreDeSesion() {
+/**
+ * Sesión actual. Las sesiones viejas guardaban solo el nombre, así que se
+ * interpretan como modo individual para no dejar a nadie afuera.
+ */
+function leerSesion() {
   try {
-    return String(sessionStorage.getItem(CLAVE_SESION) || '').trim();
+    const crudo = sessionStorage.getItem(CLAVE_SESION);
+    if (!crudo) return null;
+    if (crudo.startsWith('{')) {
+      const datos = JSON.parse(crudo);
+      return datos && datos.usuario ? datos : null;
+    }
+    return { modo: 'individual', usuario: crudo };
   } catch {
-    return '';
+    return null;
   }
 }
 
-/** Muestra la pantalla de acceso y espera a que el usuario entre. */
-function pedirAcceso() {
-  const pantalla = $('#acceso');
-  const aplicacion = $('#aplicacion');
-  const formulario = $('#acceso-formulario');
-  const campo = $('#acceso-usuario');
-  const error = $('#acceso-error');
-  if (!pantalla || !formulario) return;
-
-  pantalla.classList.remove('oculto');
-  if (aplicacion) aplicacion.classList.add('oculto');
-
-  const mostrarError = (mensaje) => {
-    error.textContent = mensaje;
-    error.classList.remove('oculto');
-    campo.classList.add('input-error');
-    campo.focus();
-    campo.select();
-  };
-
-  const entrar = (nombre) => {
-    try {
-      sessionStorage.setItem(CLAVE_SESION, nombre);
-    } catch {
-      // Sin almacenamiento: la sesión vale solo para esta pantalla.
-    }
-    pantalla.classList.add('oculto');
-    if (aplicacion) aplicacion.classList.remove('oculto');
-    // Recién acá arranca el ERP: mientras no haya sesión, no se pide nada a
-    // la API ni se dibuja la interfaz.
-    iniciar();
-    recibirConPiraPires(nombre);
-  };
-
-  formulario.onsubmit = (evento) => {
-    evento.preventDefault();
-    const nombre = (campo.value || '').trim();
-    if (!nombre) {
-      mostrarError('Escribí tu nombre para entrar.');
-      return;
-    }
-    if (nombre.toLowerCase() !== USUARIO_DE_PRUEBA) {
-      mostrarError(`«${nombre}» no es un usuario de esta prueba. `
-        + 'Entrá con el nombre Franco.');
-      return;
-    }
-    error.classList.add('oculto');
-    campo.classList.remove('input-error');
-    entrar(nombre);
-  };
-
-  campo.oninput = () => {
-    error.classList.add('oculto');
-    campo.classList.remove('input-error');
-  };
-
-  campo.focus();
+/** ¿Ya se inició sesión en esta pestaña? */
+function haySesion() {
+  return Boolean(leerSesion());
 }
 
-/** Cierra la sesión y vuelve a la pantalla de acceso. */
-function cerrarSesion() {
+/** Nombre del usuario que entró, o cadena vacía si todavía no hay sesión. */
+function nombreDeSesion() {
+  return leerSesion()?.usuario || '';
+}
+
+/** Perfil de la empresa, solo cuando se entró en modo empresa. */
+function perfilDeSesion() {
+  const sesion = leerSesion();
+  return sesion?.modo === 'empresa' ? (sesion.perfil || null) : null;
+}
+
+function guardarSesion(sesion) {
+  try {
+    sessionStorage.setItem(CLAVE_SESION, JSON.stringify(sesion));
+  } catch {
+    // Sin almacenamiento la sesión vale solo para esta pantalla.
+  }
+}
+
+function borrarSesion() {
   try {
     sessionStorage.removeItem(CLAVE_SESION);
   } catch {
     // Nada que limpiar.
   }
+}
+
+/** Huella de la contraseña. SHA-256 cuando el navegador lo permite. */
+async function huellaClave(clave, sal) {
+  const texto = `${sal}|${clave}`;
+  if (globalThis.crypto?.subtle) {
+    const bytes = new TextEncoder().encode(texto);
+    const resumen = await crypto.subtle.digest('SHA-256', bytes);
+    const hex = [...new Uint8Array(resumen)]
+      .map((b) => b.toString(16).padStart(2, '0')).join('');
+    return `sha256:${hex}`;
+  }
+  // Respaldo para contextos sin `crypto.subtle` (por ejemplo, http en una red
+  // local). No es criptográfico: la pantalla es una demostración.
+  let hash = 2166136261;
+  for (let i = 0; i < texto.length; i += 1) {
+    hash ^= texto.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv:${(hash >>> 0).toString(16)}`;
+}
+
+/** Sal aleatoria para la huella de la contraseña. */
+function salNueva() {
+  if (globalThis.crypto?.getRandomValues) {
+    return [...crypto.getRandomValues(new Uint8Array(12))]
+      .map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+/** Pasa los datos del perfil al formato de la tabla `empresa`. */
+function datosEmpresaDesdePerfil(perfil) {
+  return {
+    nombre: perfil.razonSocial || '',
+    cuit: perfil.ruc ? `${perfil.ruc}-${perfil.dv || ''}` : '',
+    actividad: perfil.actividad || '',
+    ejercicio_inicio: perfil.ejercicioInicio || '',
+    ejercicio_fin: perfil.ejercicioFin || '',
+    moneda: perfil.moneda || 'G.',
+  };
+}
+
+function mostrarErrorAcceso(caja, mensaje) {
+  if (!caja) return;
+  caja.textContent = mensaje;
+  caja.classList.remove('oculto');
+}
+
+function ocultarErrorAcceso(caja) {
+  if (!caja) return;
+  caja.textContent = '';
+  caja.classList.add('oculto');
+}
+
+/** Pantalla de acceso: siempre arranca en el selector de modo. */
+function pedirAcceso() {
+  const pantalla = $('#acceso');
+  const aplicacion = $('#aplicacion');
+  if (!pantalla) return;
+
+  pantalla.classList.remove('oculto');
+  if (aplicacion) aplicacion.classList.add('oculto');
+
+  // Se limpian los formularios para no arrastrar intentos anteriores.
+  $('#acceso-formulario-individual')?.reset();
+  $('#acceso-formulario-empresa')?.reset();
+  ocultarErrorAcceso($('#acceso-individual-error'));
+  ocultarErrorAcceso($('#acceso-empresa-error'));
+  ocultarErrorAcceso($('#acceso-registro-error'));
+
+  actualizarTarjetaEmpresa();
+  mostrarPaso('modos');
+  $('#acceso-modo-empresa')?.focus();
+}
+
+/**
+ * Muestra uno de los pasos del acceso y ajusta el ancho de la tarjeta.
+ * Pasos: `modos`, `individual`, `empresa-login` y `registro`.
+ */
+function mostrarPaso(paso) {
+  const pasos = {
+    modos: '#acceso-modos',
+    individual: '#acceso-formulario-individual',
+    'empresa-login': '#acceso-formulario-empresa',
+    registro: '#acceso-formulario-registro',
+  };
+  Object.entries(pasos).forEach(([nombre, selector]) => {
+    $(selector)?.classList.toggle('oculto', nombre !== paso);
+  });
+  $('#acceso-tarjeta')?.classList.toggle('ancha', paso === 'registro');
+
+  const subtitulos = {
+    modos: 'Elegí cómo vas a usar el sistema.',
+    individual: 'Entrá con el usuario de práctica.',
+    'empresa-login': 'Ingresá con la cuenta de tu empresa.',
+    registro: 'Completá los datos para crear la cuenta de la empresa.',
+  };
+  const subtitulo = $('#acceso-subtitulo');
+  if (subtitulo) subtitulo.textContent = subtitulos[paso] || '';
+
+  const tarjeta = $('#acceso-tarjeta');
+  if (tarjeta) tarjeta.scrollTop = 0;
+}
+
+/** Texto de la tarjeta «Empresa»: la cuenta guardada o la invitación. */
+function actualizarTarjetaEmpresa() {
+  const detalle = $('#acceso-modo-empresa-detalle');
+  if (!detalle) return;
+  const cuenta = cuentaEmpresaGuardada();
+  detalle.textContent = cuenta
+    ? `${cuenta.perfil.razonSocial} · ${cuenta.perfil.tipoNombre}`
+    : 'S.A., S.R.L., E.A.S., unipersonal, cooperativa y más';
+}
+
+function mostrarIdentidadEmpresa(cuenta) {
+  const caja = $('#acceso-empresa-identidad');
+  if (!caja) return;
+  const perfil = cuenta.perfil;
+  caja.innerHTML = `
+    <p class="text-sm font-semibold text-surface-800">${esc(perfil.razonSocial)}</p>
+    <p class="mt-0.5 text-xs text-surface-500">
+      ${esc(perfil.tipoNombre)}${perfil.ruc ? ` · RUC ${esc(perfil.ruc)}-${esc(perfil.dv)}` : ''}
+    </p>`;
+}
+
+/** HTML de un campo del formulario de registración (label + control). */
+function htmlCampoAcceso(campo, valor, prefijo) {
+  const id = `${prefijo}-${campo.clave}`;
+  const control = campo.tipo === 'select'
+    ? UI.selectHTML({
+        id,
+        name: campo.clave,
+        items: campo.opciones,
+        value: valor ?? '',
+        placeholder: 'Elegir…',
+      })
+    : UI.inputHTML({
+        id,
+        name: campo.clave,
+        type: campo.tipo || 'text',
+        value: valor ?? '',
+        placeholder: campo.placeholder || '',
+        inputmode: campo.inputmode || null,
+        min: campo.min ?? null,
+        max: campo.max ?? null,
+        autocomplete: prefijo === 'acceso-reg' ? 'off' : null,
+      });
+  return UI.campoHTML({
+    id,
+    label: campo.etiqueta,
+    control,
+    isRequired: Boolean(campo.requerido),
+    className: campo.ancho ? 'sm:col-span-2' : '',
+  });
+}
+
+/** Campos comunes de cualquier empresa. */
+function camposComunesEmpresa(tipoId) {
+  const anio = new Date().getFullYear();
+  return [
+    {
+      clave: 'tipo',
+      etiqueta: 'Tipo de empresa',
+      tipo: 'select',
+      requerido: true,
+      ancho: true,
+      opciones: TIPOS_EMPRESA.map((tipo) => ({ value: tipo.id, label: tipo.nombre })),
+      valor: tipoId,
+    },
+    {
+      clave: 'razonSocial',
+      etiqueta: 'Razón social o denominación',
+      tipo: 'text',
+      requerido: true,
+      ancho: true,
+      placeholder: 'Ej.: Distribuidora Sur S.R.L.',
+    },
+    {
+      clave: 'ruc',
+      etiqueta: 'RUC (sin dígito verificador)',
+      tipo: 'text',
+      requerido: true,
+      inputmode: 'numeric',
+      placeholder: '80012345',
+    },
+    {
+      clave: 'dv',
+      etiqueta: 'Dígito verificador',
+      tipo: 'text',
+      requerido: true,
+      inputmode: 'numeric',
+      placeholder: '6',
+    },
+    {
+      clave: 'actividad',
+      etiqueta: 'Actividad principal',
+      tipo: 'text',
+      requerido: true,
+      ancho: true,
+      placeholder: 'Comercio mayorista de mercaderías',
+    },
+    {
+      clave: 'departamento',
+      etiqueta: 'Departamento',
+      tipo: 'select',
+      opciones: DEPARTAMENTOS,
+    },
+    {
+      clave: 'ciudad',
+      etiqueta: 'Ciudad o distrito',
+      tipo: 'text',
+      placeholder: 'Ej.: Asunción',
+    },
+    {
+      clave: 'direccion',
+      etiqueta: 'Dirección',
+      tipo: 'text',
+      ancho: true,
+    },
+    {
+      clave: 'telefono',
+      etiqueta: 'Teléfono',
+      tipo: 'tel',
+      placeholder: 'Ej.: 021 123 456',
+    },
+    {
+      clave: 'email',
+      etiqueta: 'Correo electrónico',
+      tipo: 'email',
+      placeholder: 'empresa@ejemplo.com',
+    },
+    {
+      clave: 'representante',
+      etiqueta: 'Representante legal',
+      tipo: 'text',
+    },
+    {
+      clave: 'ejercicioInicio',
+      etiqueta: 'Inicio del ejercicio',
+      tipo: 'date',
+      requerido: true,
+      valor: `${anio}-01-01`,
+    },
+    {
+      clave: 'ejercicioFin',
+      etiqueta: 'Fin del ejercicio',
+      tipo: 'date',
+      requerido: true,
+      valor: `${anio}-12-31`,
+    },
+    {
+      clave: 'moneda',
+      etiqueta: 'Símbolo de moneda',
+      tipo: 'text',
+      valor: 'G.',
+    },
+  ];
+}
+
+/** Dibuja el formulario de registración completo, según el tipo elegido. */
+function pintarRegistro(tipoId = 'srl') {
+  const contenedor = $('#acceso-registro-campos');
+  if (!contenedor) return;
+
+  contenedor.innerHTML = camposComunesEmpresa(tipoId)
+    .map((campo) => htmlCampoAcceso(campo, campo.valor, 'acceso-reg'))
+    .join('')
+    + '<div id="acceso-registro-extras" class="sm:col-span-2 grid gap-3 sm:grid-cols-2"></div>';
+
+  pintarExtrasTipo(tipoId);
+  const selector = $('#acceso-reg-tipo');
+  if (selector) selector.onchange = () => pintarExtrasTipo(selector.value);
+}
+
+/** Campos propios de la figura jurídica elegida. */
+function pintarExtrasTipo(tipoId) {
+  const caja = $('#acceso-registro-extras');
+  if (!caja) return;
+  const tipo = TIPOS_EMPRESA.find((t) => t.id === tipoId) || TIPOS_EMPRESA[0];
+  caja.innerHTML = `
+    <div class="mt-1 border-t border-surface-200 pt-3 sm:col-span-2">
+      <p class="text-xs font-semibold tracking-wide text-surface-500 uppercase">
+        Datos propios de ${esc(tipo.nombre)}
+      </p>
+    </div>
+    ${tipo.campos.map((campo) => htmlCampoAcceso(campo, '', 'acceso-extra')).join('')}`;
+}
+
+function abrirRegistro() {
+  pintarRegistro('srl');
+  ['#acceso-registro-usuario', '#acceso-registro-clave', '#acceso-registro-clave2']
+    .forEach((selector) => {
+      const campo = $(selector);
+      if (campo) campo.value = '';
+    });
+  ocultarErrorAcceso($('#acceso-registro-error'));
+
+  const aviso = $('#acceso-registro-aviso');
+  const cuenta = cuentaEmpresaGuardada();
+  if (aviso) {
+    aviso.textContent = cuenta
+      ? `Ya hay una cuenta guardada (${cuenta.perfil.razonSocial}). Al crear esta, `
+        + 'se reemplaza. Los datos contables que ya existan no se borran: para '
+        + 'empezar de cero, usá «Reiniciar datos» en el Panel.'
+      : 'La cuenta se guarda en este navegador; la contraseña queda como huella '
+        + 'y no se envía al servidor.';
+  }
+
+  mostrarPaso('registro');
+  $('#acceso-reg-razonSocial')?.focus();
+}
+
+/** Valida el formulario y devuelve el perfil listo para guardar. */
+function leerRegistro() {
+  const formulario = $('#acceso-formulario-registro');
+  const datos = formulario ? Object.fromEntries(new FormData(formulario).entries()) : {};
+  const tipo = TIPOS_EMPRESA.find((t) => t.id === datos.tipo) || TIPOS_EMPRESA[0];
+
+  const texto = (valor) => String(valor ?? '').trim();
+  const extras = {};
+  tipo.campos.forEach((campo) => {
+    extras[campo.clave] = texto(datos[campo.clave]);
+  });
+
+  const perfil = {
+    tipo: tipo.id,
+    tipoNombre: tipo.nombre,
+    razonSocial: texto(datos.razonSocial),
+    ruc: texto(datos.ruc).replace(/\D/g, ''),
+    dv: texto(datos.dv).replace(/\D/g, '').slice(0, 1),
+    actividad: texto(datos.actividad),
+    departamento: texto(datos.departamento),
+    ciudad: texto(datos.ciudad),
+    direccion: texto(datos.direccion),
+    telefono: texto(datos.telefono),
+    email: texto(datos.email),
+    representante: texto(datos.representante),
+    ejercicioInicio: texto(datos.ejercicioInicio),
+    ejercicioFin: texto(datos.ejercicioFin),
+    moneda: texto(datos.moneda) || 'G.',
+    extras,
+    creada: new Date().toISOString(),
+  };
+  return { datos, perfil, tipo };
+}
+
+function validarRegistro(datos, perfil, tipo) {
+  if (!perfil.razonSocial) return 'Escribí la razón social o denominación.';
+  if (!/^\d{6,9}$/.test(perfil.ruc)) {
+    return 'El RUC debe tener entre 6 y 9 dígitos, sin puntos ni guiones.';
+  }
+  if (!/^\d$/.test(perfil.dv)) return 'El dígito verificador es un solo número.';
+  if (!perfil.actividad) return 'Escribí la actividad principal.';
+  if (!perfil.ejercicioInicio || !perfil.ejercicioFin) {
+    return 'Completá el inicio y el fin del ejercicio.';
+  }
+  if (perfil.ejercicioInicio > perfil.ejercicioFin) {
+    return 'El ejercicio no puede terminar antes de empezar.';
+  }
+  if (perfil.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(perfil.email)) {
+    return 'El correo electrónico no parece válido.';
+  }
+  const faltante = tipo.campos.find((campo) => campo.requerido && !perfil.extras[campo.clave]);
+  if (faltante) return `Completá «${faltante.etiqueta}».`;
+
+  const usuario = String(datos.usuario || '').trim();
+  if (usuario.length < 3) return 'El usuario necesita al menos 3 caracteres.';
+  if (usuario.includes(' ')) return 'El usuario no puede tener espacios.';
+  if (String(datos.clave || '').length < 4) {
+    return 'La contraseña necesita al menos 4 caracteres.';
+  }
+  if (datos.clave !== datos.clave2) return 'Las contraseñas no coinciden.';
+  return '';
+}
+
+/**
+ * Copia los datos de la empresa al servidor y entra al ERP.
+ * Si la API falla, la cuenta ya quedó guardada y se puede reintentar.
+ */
+async function entrarConEmpresa(cuenta, cajaError, guardarCuenta = false) {
+  try {
+    await api('/api/empresa', {
+      method: 'PUT',
+      body: datosEmpresaDesdePerfil(cuenta.perfil),
+    });
+  } catch (error) {
+    mostrarErrorAcceso(
+      cajaError,
+      `No se pudo guardar la empresa en el servidor: ${error.mensaje || 'error de conexión'}.`,
+    );
+    return false;
+  }
+
+  // La cuenta recién se guarda cuando el servidor aceptó los datos: si falla,
+  // la cuenta anterior (si existía) queda intacta.
+  if (guardarCuenta && !guardarCuentaEmpresa(cuenta)) {
+    mostrarErrorAcceso(cajaError, 'Este navegador no permite guardar la cuenta. '
+      + 'Revisá el almacenamiento local y volvé a intentar.');
+    return false;
+  }
+
+  guardarSesion({ modo: 'empresa', usuario: cuenta.usuario, perfil: cuenta.perfil });
+  entrarAlSistema();
+  return true;
+}
+
+function entrarAlSistema() {
+  const sesion = leerSesion();
+  $('#acceso')?.classList.add('oculto');
+  $('#aplicacion')?.classList.remove('oculto');
+  // Recién acá arranca el ERP: mientras no haya sesión, no se pide nada a la
+  // API ni se dibuja la interfaz.
+  iniciar();
+  recibirConPiraPires(sesion?.usuario || '');
+}
+
+/** Cierra la sesión y vuelve a la pantalla de acceso. */
+function cerrarSesion() {
+  borrarSesion();
   const campo = $('#acceso-usuario');
   if (campo) campo.value = '';
+  const clave = $('#acceso-clave');
+  if (clave) clave.value = '';
   pedirAcceso();
+}
+
+/**
+ * Sincroniza la cuenta guardada cuando se editan los datos de la empresa
+ * desde el Panel, para que el próximo acceso vuelva a dejar todo igual.
+ */
+function actualizarCuentaEmpresa(datos) {
+  const cuenta = cuentaEmpresaGuardada();
+  if (!cuenta) return;
+  const perfil = { ...cuenta.perfil };
+
+  const texto = (valor) => String(valor ?? '').trim();
+  if (texto(datos.nombre)) perfil.razonSocial = texto(datos.nombre);
+  if (texto(datos.actividad)) perfil.actividad = texto(datos.actividad);
+  if (texto(datos.ejercicio_inicio)) perfil.ejercicioInicio = texto(datos.ejercicio_inicio);
+  if (texto(datos.ejercicio_fin)) perfil.ejercicioFin = texto(datos.ejercicio_fin);
+  if (texto(datos.moneda)) perfil.moneda = texto(datos.moneda);
+  if (texto(datos.cuit)) {
+    const [ruc, dv] = texto(datos.cuit).split('-');
+    perfil.ruc = texto(ruc).replace(/\D/g, '');
+    perfil.dv = texto(dv).replace(/\D/g, '').slice(0, 1);
+  }
+
+  cuenta.perfil = perfil;
+  guardarCuentaEmpresa(cuenta);
+
+  const sesion = leerSesion();
+  if (sesion?.modo === 'empresa') {
+    sesion.perfil = perfil;
+    guardarSesion(sesion);
+  }
+}
+
+/** Tarjeta del Panel con los datos cargados al crear la cuenta de empresa. */
+function pintarPerfilEmpresa() {
+  const caja = $('#panel-perfil-empresa');
+  const contenido = $('#panel-perfil-empresa-contenido');
+  if (!caja || !contenido) return;
+
+  const perfil = perfilDeSesion();
+  if (!perfil) {
+    caja.classList.add('oculto');
+    contenido.innerHTML = '';
+    return;
+  }
+
+  const tipo = TIPOS_EMPRESA.find((t) => t.id === perfil.tipo);
+  const filas = [
+    ['Tipo de empresa', perfil.tipoNombre || tipo?.nombre],
+    ['RUC', perfil.ruc && `${perfil.ruc}-${perfil.dv || ''}`],
+    ['Departamento', perfil.departamento],
+    ['Ciudad o distrito', perfil.ciudad],
+    ['Dirección', perfil.direccion],
+    ['Teléfono', perfil.telefono],
+    ['Correo electrónico', perfil.email],
+    ['Representante legal', perfil.representante],
+    ...(tipo?.campos || []).map((campo) => [campo.etiqueta, perfil.extras?.[campo.clave]]),
+  ].filter(([, valor]) => String(valor ?? '').trim());
+
+  contenido.innerHTML = filas.length
+    ? `<dl class="grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">${filas.map(([etiqueta, valor]) => `
+        <div>
+          <dt class="text-xs text-surface-500">${esc(etiqueta)}</dt>
+          <dd class="mt-0.5 text-sm font-medium text-surface-800">${esc(valor)}</dd>
+        </div>`).join('')}</dl>`
+    : '<p class="text-sm text-surface-500">La cuenta no tiene datos adicionales.</p>';
+  caja.classList.remove('oculto');
+}
+
+/** Conecta los formularios y los botones de la pantalla de acceso. */
+function conectarAcceso() {
+  $('#acceso-modo-empresa')?.addEventListener('click', () => {
+    const cuenta = cuentaEmpresaGuardada();
+    if (cuenta) {
+      mostrarIdentidadEmpresa(cuenta);
+      mostrarPaso('empresa-login');
+      ocultarErrorAcceso($('#acceso-empresa-error'));
+      const usuario = $('#acceso-empresa-usuario');
+      if (usuario) {
+        usuario.value = cuenta.usuario;
+        usuario.focus();
+        usuario.select();
+      }
+      $('#acceso-empresa-clave')?.focus();
+    } else {
+      abrirRegistro();
+    }
+  });
+
+  $('#acceso-modo-individual')?.addEventListener('click', () => {
+    mostrarPaso('individual');
+    ocultarErrorAcceso($('#acceso-individual-error'));
+    const usuario = $('#acceso-usuario');
+    if (usuario) {
+      usuario.value = '';
+      usuario.focus();
+    }
+    const clave = $('#acceso-clave');
+    if (clave) clave.value = '';
+  });
+
+  $('#acceso-individual-volver')?.addEventListener('click', () => {
+    actualizarTarjetaEmpresa();
+    mostrarPaso('modos');
+    $('#acceso-modo-empresa')?.focus();
+  });
+  $('#acceso-empresa-volver')?.addEventListener('click', () => {
+    actualizarTarjetaEmpresa();
+    mostrarPaso('modos');
+    $('#acceso-modo-empresa')?.focus();
+  });
+  $('#acceso-registro-volver')?.addEventListener('click', () => {
+    actualizarTarjetaEmpresa();
+    mostrarPaso('modos');
+    $('#acceso-modo-empresa')?.focus();
+  });
+  $('#acceso-empresa-crear')?.addEventListener('click', abrirRegistro);
+
+  // Los errores se limpian al corregir el campo que los provocó.
+  ['#acceso-usuario', '#acceso-clave'].forEach((selector) => {
+    $(selector)?.addEventListener('input', () => ocultarErrorAcceso($('#acceso-individual-error')));
+  });
+  ['#acceso-empresa-usuario', '#acceso-empresa-clave'].forEach((selector) => {
+    $(selector)?.addEventListener('input', () => ocultarErrorAcceso($('#acceso-empresa-error')));
+  });
+
+  // --- Modo individual: Franco / Franco --------------------------------
+  $('#acceso-formulario-individual')?.addEventListener('submit', (evento) => {
+    evento.preventDefault();
+    const cajaError = $('#acceso-individual-error');
+    const usuario = String($('#acceso-usuario')?.value || '').trim();
+    const clave = String($('#acceso-clave')?.value || '');
+    if (!usuario || !clave) {
+      mostrarErrorAcceso(cajaError, 'Completá el usuario y la contraseña.');
+      return;
+    }
+    if (usuario.toLowerCase() !== USUARIO_INDIVIDUAL.toLowerCase()
+        || clave.toLowerCase() !== CLAVE_INDIVIDUAL.toLowerCase()) {
+      mostrarErrorAcceso(cajaError, 'Usuario o contraseña incorrectos. '
+        + 'En el modo individual es Franco / Franco.');
+      return;
+    }
+    ocultarErrorAcceso(cajaError);
+    guardarSesion({ modo: 'individual', usuario: USUARIO_INDIVIDUAL });
+    entrarAlSistema();
+  });
+
+  // --- Empresa: ingresar con la cuenta guardada -----------------------
+  $('#acceso-formulario-empresa')?.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const cajaError = $('#acceso-empresa-error');
+    const cuenta = cuentaEmpresaGuardada();
+    if (!cuenta) {
+      abrirRegistro();
+      return;
+    }
+
+    const usuario = String($('#acceso-empresa-usuario')?.value || '').trim();
+    const clave = String($('#acceso-empresa-clave')?.value || '');
+    if (!usuario || !clave) {
+      mostrarErrorAcceso(cajaError, 'Completá el usuario y la contraseña.');
+      return;
+    }
+    ocultarErrorAcceso(cajaError);
+
+    const boton = $('#acceso-empresa-entrar');
+    boton?.classList.add('btn-pending');
+    try {
+      const huella = await huellaClave(clave, cuenta.sal);
+      const usuarioOk = usuario.toLowerCase() === String(cuenta.usuario).toLowerCase();
+      if (!usuarioOk || huella !== cuenta.huella) {
+        mostrarErrorAcceso(cajaError, 'Usuario o contraseña incorrectos.');
+        return;
+      }
+      await entrarConEmpresa(cuenta, cajaError);
+    } finally {
+      boton?.classList.remove('btn-pending');
+    }
+  });
+
+  // --- Empresa: crear cuenta ------------------------------------------
+  $('#acceso-formulario-registro')?.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const cajaError = $('#acceso-registro-error');
+    const { datos, perfil, tipo } = leerRegistro();
+    const problema = validarRegistro(datos, perfil, tipo);
+    if (problema) {
+      mostrarErrorAcceso(cajaError, problema);
+      return;
+    }
+    ocultarErrorAcceso(cajaError);
+
+    const usuario = String(datos.usuario || '').trim();
+    const boton = $('#acceso-registro-crear');
+    boton?.classList.add('btn-pending');
+    try {
+      const sal = salNueva();
+      const cuenta = {
+        version: 1,
+        usuario,
+        sal,
+        huella: await huellaClave(String(datos.clave || ''), sal),
+        perfil,
+      };
+      await entrarConEmpresa(cuenta, cajaError, true);
+    } finally {
+      boton?.classList.remove('btn-pending');
+    }
+  });
 }
 
 /**
@@ -3234,6 +4012,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // El tema se aplica antes de mostrar nada, así la pantalla de acceso ya sale
   // con el tema elegido y no hay un destello claro.
   iniciarTema();
+
+  // Los formularios de acceso se conectan una sola vez; después solo se
+  // muestran y se ocultan según el paso.
+  conectarAcceso();
 
   // Si ya se entró en esta pestaña, se arranca directo; si no, primero la
   // pantalla de acceso. El ERP no se carga hasta que haya sesión.

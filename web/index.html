@@ -697,6 +697,29 @@
     .acceso-tarjeta {
       @apply w-full max-w-md rounded-modal border border-surface-200 bg-white
              p-8 shadow-float;
+      /* El formulario de empresa es largo: la tarjeta scrollea sola para que
+         el botón de entrar siempre quede a la vista. */
+      max-height: calc(100dvh - 3rem);
+      overflow-y: auto;
+    }
+    /* Al crear una empresa la tarjeta se ensancha para usar dos columnas. */
+    .acceso-tarjeta.ancha {
+      max-width: 42rem;
+    }
+    .acceso-modo {
+      @apply flex w-full items-start gap-3 rounded-field border
+             border-surface-200 bg-white p-4 text-left transition
+             hover:border-primary-300 hover:bg-primary-50
+             focus-visible:ring-2 focus-visible:ring-primary-400
+             focus-visible:outline-none;
+    }
+    .acceso-modo-icono {
+      @apply flex size-10 shrink-0 items-center justify-center rounded-full
+             bg-primary-100 text-primary-700;
+    }
+    .acceso-volver {
+      @apply text-xs font-medium text-surface-500 underline-offset-2
+             hover:text-surface-800 hover:underline;
     }
     /* En pantallas angostas, la foto se muestra como encabezado en vez de
        desaparecer del todo: es el rostro de Pira Pires dando la bienvenida. */
@@ -744,9 +767,11 @@
 
 <!-- =====================================================================
      INICIO DE SESIÓN
-     Cubre toda la aplicación hasta que se entre. Es una prueba: alcanza con
-     escribir el nombre «Franco» (sin contraseña) para pasar. Al entrar, la
-     pantalla se retira y arranca el ERP, donde Pira Pires da la bienvenida.
+     Cubre toda la aplicación hasta que se entre. Primero se elige cómo usar
+     el sistema: como empresa (se crea la cuenta con los datos de la figura
+     jurídica) o en modo individual (usuario Franco, contraseña Franco).
+     La cuenta de empresa se guarda en este navegador y la contraseña queda
+     como huella, no en texto plano.
      ===================================================================== -->
 <div id="acceso" class="acceso no-imprimir">
   <!-- Foto de Pira Pires, solo en pantallas anchas -->
@@ -768,27 +793,70 @@
 
   <!-- Formulario -->
   <div class="acceso-panel">
-    <div class="acceso-tarjeta">
+    <div id="acceso-tarjeta" class="acceso-tarjeta">
       <div class="acceso-avatar lg:hidden">
         <img src="img/pirapires-cuadrado.jpg" alt="Pira Pires">
       </div>
 
       <div class="mt-5 text-center lg:mt-0 lg:text-left">
         <h1 class="text-xl font-semibold text-surface-900">Iniciar sesión</h1>
-        <p class="mt-1 text-sm text-surface-500">
-          Escribí tu nombre para entrar al sistema.
+        <p id="acceso-subtitulo" class="mt-1 text-sm text-surface-500">
+          Elegí cómo vas a usar el sistema.
         </p>
       </div>
 
-      <form id="acceso-formulario" class="mt-6 space-y-4" novalidate>
+      <!-- Paso 1: empresa o uso individual -->
+      <div id="acceso-modos" class="mt-6 grid gap-3">
+        <button type="button" id="acceso-modo-empresa" class="acceso-modo">
+          <span class="acceso-modo-icono" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                 width="20" height="20" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/>
+              <path d="M9 10h.01M15 10h.01M9 13h.01M15 13h.01"/>
+            </svg>
+          </span>
+          <span class="min-w-0">
+            <span class="block text-sm font-semibold text-surface-900">Empresa</span>
+            <span id="acceso-modo-empresa-detalle"
+                  class="mt-0.5 block text-xs text-surface-500">
+              S.A., S.R.L., E.A.S., unipersonal, cooperativa y más
+            </span>
+          </span>
+        </button>
+
+        <button type="button" id="acceso-modo-individual" class="acceso-modo">
+          <span class="acceso-modo-icono" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                 width="20" height="20" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </span>
+          <span class="min-w-0">
+            <span class="block text-sm font-semibold text-surface-900">Uso individual</span>
+            <span class="mt-0.5 block text-xs text-surface-500">
+              Para practicar contabilidad con Franco
+            </span>
+          </span>
+        </button>
+      </div>
+
+      <!-- Paso 2a: uso individual -->
+      <form id="acceso-formulario-individual" class="mt-6 space-y-4 oculto" novalidate>
         <div>
           <label class="label" for="acceso-usuario">Usuario</label>
-          <input id="acceso-usuario" type="text" class="input"
-                 autocomplete="username" autofocus
-                 placeholder="Franco">
+          <input id="acceso-usuario" name="usuario" type="text" class="input"
+                 autocomplete="username" placeholder="Franco">
+        </div>
+        <div>
+          <label class="label" for="acceso-clave">Contraseña</label>
+          <input id="acceso-clave" name="clave" type="password" class="input"
+                 autocomplete="current-password" placeholder="Franco">
         </div>
 
-        <div id="acceso-error" class="acceso-error oculto" role="alert"></div>
+        <div id="acceso-individual-error" class="acceso-error oculto" role="alert"></div>
 
         <div class="acceso-sugerencia">
           <span class="shrink-0" aria-hidden="true">
@@ -800,13 +868,94 @@
             </svg>
           </span>
           <span>
-            Es una prueba: con el nombre <strong>Franco</strong> se entra
-            directamente, sin contraseña.
+            Es una prueba: usuario <strong>Franco</strong> y contraseña
+            <strong>Franco</strong>.
           </span>
         </div>
 
         <button type="submit" class="btn btn-md btn-primary-fill w-full">
           Entrar
+        </button>
+        <button type="button" id="acceso-individual-volver" class="acceso-volver">
+          Volver
+        </button>
+      </form>
+
+      <!-- Paso 2b: empresa con cuenta ya creada -->
+      <form id="acceso-formulario-empresa" class="mt-6 space-y-4 oculto" novalidate>
+        <div id="acceso-empresa-identidad"
+             class="rounded-field border border-surface-200 bg-surface-50 px-3 py-2"></div>
+
+        <div>
+          <label class="label" for="acceso-empresa-usuario">Usuario</label>
+          <input id="acceso-empresa-usuario" name="usuario" type="text" class="input"
+                 autocomplete="username" placeholder="Usuario de la empresa">
+        </div>
+        <div>
+          <label class="label" for="acceso-empresa-clave">Contraseña</label>
+          <input id="acceso-empresa-clave" name="clave" type="password" class="input"
+                 autocomplete="current-password">
+        </div>
+
+        <div id="acceso-empresa-error" class="acceso-error oculto" role="alert"></div>
+
+        <button type="submit" id="acceso-empresa-entrar"
+                class="btn btn-md btn-primary-fill w-full">
+          Entrar
+        </button>
+        <div class="flex items-center justify-between gap-3">
+          <button type="button" id="acceso-empresa-crear" class="acceso-volver">
+            Crear otra empresa
+          </button>
+          <button type="button" id="acceso-empresa-volver" class="acceso-volver">
+            Volver
+          </button>
+        </div>
+      </form>
+
+      <!-- Paso 2c: empresa nueva -->
+      <form id="acceso-formulario-registro" class="mt-6 space-y-4 oculto" novalidate>
+        <div id="acceso-registro-campos" class="grid gap-3 sm:grid-cols-2"></div>
+
+        <hr class="border-surface-200">
+
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label" for="acceso-registro-usuario">
+              Usuario de acceso <span class="required-mark" aria-hidden="true">*</span>
+            </label>
+            <input id="acceso-registro-usuario" name="usuario" type="text" class="input"
+                   autocomplete="username" placeholder="Ej.: admin">
+          </div>
+          <div>
+            <label class="label" for="acceso-registro-clave">
+              Contraseña <span class="required-mark" aria-hidden="true">*</span>
+            </label>
+            <input id="acceso-registro-clave" name="clave" type="password" class="input"
+                   autocomplete="new-password" placeholder="Mínimo 4 caracteres">
+          </div>
+          <div class="sm:col-span-2">
+            <label class="label" for="acceso-registro-clave2">
+              Repetir la contraseña <span class="required-mark" aria-hidden="true">*</span>
+            </label>
+            <input id="acceso-registro-clave2" name="clave2" type="password" class="input"
+                   autocomplete="new-password">
+          </div>
+        </div>
+
+        <div id="acceso-registro-error" class="acceso-error oculto" role="alert"></div>
+
+        <p id="acceso-registro-aviso" class="text-xs text-surface-500">
+          La cuenta se guarda en este navegador; la contraseña queda como
+          huella y no se envía al servidor.
+        </p>
+
+        <button type="submit" id="acceso-registro-crear"
+                class="btn btn-md btn-primary-fill w-full">
+          Crear empresa y entrar
+        </button>
+        <button type="button" id="acceso-registro-volver" class="acceso-volver">
+          Volver
         </button>
       </form>
     </div>
@@ -958,6 +1107,16 @@
             </div>
             <form id="form-empresa" class="card-body space-y-3"></form>
           </div>
+        </div>
+
+        <div id="panel-perfil-empresa" class="card mt-4 oculto">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Perfil de la empresa</h2>
+              <p class="card-subtitle">Datos cargados al crear la cuenta de acceso</p>
+            </div>
+          </div>
+          <div id="panel-perfil-empresa-contenido" class="card-body"></div>
         </div>
 
         <div class="card mt-4">

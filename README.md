@@ -38,6 +38,27 @@ python3 main.py --abrir            # abre el navegador automáticamente
 Luego, en la web: **Panel → «Cargar datos de prueba»** y recorrer el menú
 `Plan de cuentas → Libro Diario → Libro Mayor → Balance`.
 
+### El acceso
+
+Al abrir la aplicación se elige cómo usarla:
+
+- **Empresa**: se elige el tipo (las 15 figuras jurídicas de Paraguay: empresa
+  unipersonal, S.A., S.R.L., E.A.S., sociedad colectiva, comandita simple y por
+  acciones, capital e industria, accidental, cooperativa, asociación, fundación,
+  sucursal de sociedad extranjera, consorcio/UTE y economía mixta), se completan
+  los datos de la empresa y los propios de la figura, y se define el usuario y
+  la contraseña. La cuenta queda guardada en el navegador (`localStorage`) con
+  la contraseña como huella SHA-256; al entrar, los datos de la empresa se
+  copian a la tabla `empresa`.
+- **Uso individual**: usuario `Franco` y contraseña `Franco`.
+
+Es una pantalla de demostración: no hay autenticación en el servidor y la
+sesión vive en `sessionStorage` (se cierra con «Salir» o al cerrar la pestaña).
+La empresa es única por instalación: si se crea otra cuenta, reemplaza los
+datos de la empresa. En el Panel se muestra el **perfil cargado en el acceso**,
+y los cambios que se hagan en «Datos de la empresa» también se guardan en la
+cuenta del navegador.
+
 ### La interfaz
 
 Está hecha con **Tailwind CSS v4**, el mismo motor que usa 21st.dev, cargado
@@ -336,9 +357,10 @@ Los seis se pueden ver en vivo en la vista **Controles** de la aplicación.
 ## Evidencia de funcionamiento
 
 Datos de prueba de la sección 19: comercio mayorista de mercaderías, abril de
-2026. La razón social no viene precargada: la toma el **usuario que entra**
-(por ejemplo «Franco»), y el CUIT, la actividad y el ejercicio quedan editables
-desde el formulario de la empresa.
+2026. La razón social no viene precargada: en el modo individual la toma el
+usuario que entra («Franco») y en el modo empresa se completa en el acceso.
+El RUC, la actividad y el ejercicio quedan editables desde el formulario de la
+empresa.
 
 ### 1. Plan de cuentas (sección 13)
 

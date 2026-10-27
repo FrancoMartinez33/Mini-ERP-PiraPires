@@ -178,7 +178,11 @@ const UI = (() => {
 
     const tamano = TAMANOS_BOTON.includes(size) ? size : 'md';
     const svg = iconName ? icono(iconName, { tamano: tamano === 'lg' ? 20 : 16 }) : '';
-    return `<button type="button"
+    // Si quien llama ya indica un `type` (por ejemplo `type="submit"`), no se
+    // agrega `type="button"`: con dos atributos `type` el navegador toma el
+    // primero y el botón nunca enviaría el formulario.
+    const atributosTipo = /\btype\s*=/.test(attributes) ? '' : 'type="button"';
+    return `<button ${atributosTipo}
       class="${clasesBoton({ variant, appearance, size, iconOnly, className })}${pending ? ' btn-pending' : ''}"
       ${title ? `title="${escapar(title)}"` : ''}
       ${pending ? 'aria-busy="true"' : ''}
