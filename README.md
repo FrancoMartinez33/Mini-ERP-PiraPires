@@ -112,9 +112,32 @@ asiento;fecha;concepto;cuenta;detalle;debe;haber
   Si una sola fila falla, **no se guarda nada** y se indica el número de fila
   del archivo para corregirla.
 
+El mismo formato es el que usa Pira Pires cuando propone asientos: el bloque
+CSV de su respuesta se puede cargar con el botón **«Cargar asientos en el Libro
+Diario»**, que pasa por esta misma validación y vista previa.
+
 El separador puede ser coma, punto y coma, tabulador o barra vertical: se
 detecta solo. El archivo se lee como UTF-8 y el máximo es **1,5 MB**. Recordá
 que el orden importa: primero las cuentas y después los asientos.
+
+### Descargar el trabajo resuelto en Excel
+
+Cuando el ejercicio ya está cargado y contabilizado, se puede devolver todo
+resuelto como un **libro Excel (.xlsx)** con el botón **«Descargar Excel»** del
+Panel (y también junto a «Imprimir» en el Balance). Un solo archivo con tres
+hojas:
+
+- **Libro Diario** — cada partida de los asientos confirmados, con sus totales.
+- **Libro Mayor** — el movimiento cuenta por cuenta con el saldo acumulado.
+- **Balance** — balance de comprobación con subtotales por clasificación.
+
+El libro se genera **sin dependencias**: un `.xlsx` es un ZIP con XML adentro
+(OOXML), así que `erp/excel.py` lo escribe con `zipfile` de la biblioteca
+estándar. Los importes van como **números reales** de Excel (no texto), con el
+formato `#,##0.00`; las fechas son fechas de verdad. Respeta el período activo
+de los filtros superiores y, como el Mayor y el Balance se leen de los mismos
+módulos que la interfaz, el archivo refleja exactamente lo contabilizado
+(controles 4 y 5).
 
 ### La interfaz
 
@@ -173,11 +196,11 @@ respetar el diseño de la aplicación.
 
 | Vista | Qué muestra |
 |-------|-------------|
-| **Panel** | Indicadores del período, estado de los 6 controles, datos de la empresa, carga de datos propios desde CSV y datos de prueba |
+| **Panel** | Indicadores del período, estado de los 6 controles, datos de la empresa, carga de datos propios desde CSV, datos de prueba y descarga del trabajo en Excel |
 | **Plan de cuentas** | Alta / edición / baja de cuentas, con validación del código y de la clasificación |
 | **Libro Diario** | Alta de asientos con partidas dinámicas, cuadre en vivo, ciclo de vida completo |
 | **Libro Mayor** | Movimiento de una cuenta o de todas, con saldo acumulado en cada línea |
-| **Balance** | Balance de comprobación con subtotales por clasificación y verificaciones |
+| **Balance** | Balance de comprobación con subtotales por clasificación, verificaciones y descarga en Excel |
 | **IVA** | Calculadora del impuesto, generación de asientos de venta y compra, y liquidación mensual del período |
 | **Controles** | Las 6 reglas de la sección 18 y la demostración de la trazabilidad |
 
@@ -220,21 +243,52 @@ abierta** mientras redacta. Las respuestas no aparecen de golpe: se **escriben
 palabra por palabra** con un cursor que parpadea, al ritmo del largo del texto.
 El pez mantiene la boca abierta mientras escribe y la cierra al terminar.
 
-**Pira Pires recibe archivos.** Desde el clip del pie del chat se puede adjuntar:
+**Pira Pires recibe archivos.** Desde el clip del pie del chat (en la pestaña y en
+la burbuja flotante) se puede adjuntar:
 
 * **imágenes** (capturas de pantalla, fotos de libros o balances) → se mandan
   al modelo con visión;
-* **CSV, TXT, JSON, MD y TSV** → se leen como texto y se agregan al mensaje;
-* **PDF y hojas de cálculo** → se aceptan, pero como no hay extractor de texto
-  en la biblioteca estándar se le avisa al modelo que no se pudieron leer y se
-  recomienda pasarlos como imagen o CSV.
+* **PDF** → se extrae el texto con la biblioteca estándar. Si es un escaneo o
+  una fuente sin mapa Unicode y hay clave de Gemini, el PDF se manda como
+  documento para que lo lea con visión;
+* **Word `.docx` y Excel `.xlsx`** → se extraen párrafos, tablas, hojas y
+  celdas con la biblioteca estándar (`zipfile` + XML), incluidas las fechas;
+* **CSV, TXT, JSON, MD, TSV y XML** → se leen como texto y se agregan al
+  mensaje.
+
+Los formatos binarios antiguos (`.doc`, `.xls`, `.ppt`, `.odt`, `.ods`, `.rtf`)
+no se pueden abrir sin dependencias: el asistente lo avisa y sugiere guardarlos
+como `.docx`, `.xlsx`, PDF con texto seleccionable o pasarlos como imagen.
 
 Los adjuntos quedan en una tira de etiquetas sobre el pie, con miniatura en el
-caso de las imágenes y una **×** para quitarlos. Se envían una sola vez, junto
-con la próxima pregunta (que puede ir vacía: adjuntar un balance y dejar que
-Pira Pires lo mire es un caso válido). El tope por archivo es de **8 MB** y el
-texto de cada uno se recorta a **100 000 caracteres** para no arrastrar un CSV
-gigante en cada consulta.
+caso de las imágenes y una **×** para quitarlos. La lista es compartida entre la
+pestaña y la burbuja. Se envían una sola vez, junto con la próxima pregunta
+(que puede ir vacía: adjuntar un enunciado y dejar que Pira Pires lo mire es un
+caso válido). El tope es de **8 MB por archivo y 8 MB en total** (los adjuntos
+viajan en base64 dentro del JSON) y el texto de cada uno se recorta a
+**100 000 caracteres** para no arrastrar un archivo gigante en cada consulta.
+
+### Resolver un examen con Pira Pires
+
+El flujo pensado para devolver un examen resuelto es:
+
+1. Adjuntar el enunciado (PDF, Word, Excel o una foto) desde la pestaña
+   **Asistente** o desde la burbuja flotante.
+2. Pedirle que lo resuelva, por ejemplo: *«Resolvé este examen con el plan de
+   cuentas del sistema»*. Pira Pires recibe además el **plan de cuentas real**
+   (solo las cuentas de detalle activas), así que usa los códigos exactos.
+3. Revisar la explicación y el **bloque CSV** que agrega al final. La interfaz
+   detecta ese bloque y muestra el botón **«Cargar asientos en el Libro
+   Diario»**.
+4. Tocar el botón: se abre la misma **vista previa** del importador (asientos,
+   líneas, total Debe y Haber, y la lista de errores si algo no cuadra). Recién
+   al confirmar se guardan como **CONFIRMADOS**, en una sola transacción.
+5. Descargar el archivo con **«Descargar Excel»** desde el Panel o el Balance.
+
+La IA **no escribe sola en la base**: propone los asientos y el usuario revisa
+y confirma. Si el CSV tiene un error (cuenta inexistente, Debe ≠ Haber, fecha
+inválida), no se importa nada y el diálogo indica qué corregir. BORRADOR y
+ANULADO no se exportan al Excel; solo se listan al pie de la hoja del Diario.
 
 
 ---
@@ -253,7 +307,9 @@ erp/
   libro_mayor.py           Etapa 2 · Libro Mayor automático
   balance.py               Etapa 3 · Balance de comprobación
   iva.py                   IVA de Paraguay (Ley N.º 1259/97)
-  asistente.py             Pira Pires: Groq con respaldo en Gemini
+  excel.py                 exportación del trabajo resuelto a Excel (.xlsx)
+  asistente.py             Pira Pires: Groq con respaldo en Gemini, lectura de
+                           PDF/Word/Excel e importación de asientos propuestos
   datos_demo.py            empresa ficticia con las 15 operaciones
   servidor.py              API JSON + servidor de archivos estáticos
 web/
@@ -593,6 +649,7 @@ códigos HTTP con sentido.
 | GET | `/api/libro-mayor` | Libro Mayor completo |
 | GET | `/api/balance` | Balance de comprobación |
 | GET | `/api/balance/cruce` | Cruce Balance ↔ Libro Mayor |
+| GET | `/api/excel` | Descargar el trabajo resuelto como Excel (.xlsx): Diario, Mayor y Balance (admite `desde`/`hasta`) |
 | GET | `/api/controles` | Estado de los 6 controles |
 | GET | `/api/iva/alicuotas` | Alícuotas vigentes (10 %, 5 %, exenta) |
 | POST | `/api/iva/calcular` | Calcular / discriminar el IVA de un importe |
@@ -600,7 +657,7 @@ códigos HTTP con sentido.
 | GET | `/api/iva/resumen` | Débito y Crédito Fiscal del período |
 | POST | `/api/iva/liquidar` | Contabilizar la liquidación del período |
 | GET | `/api/asistente/configuracion` | Estado de los proveedores de la IA |
-| POST | `/api/asistente` | Consultar a Pira Pires (acepta `archivos` en base64) |
+| POST | `/api/asistente` | Consultar a Pira Pires (acepta `archivos` en base64; devuelve `asientos_csv` si propone asientos) |
 | POST | `/api/importar/cuentas` | Validar (vista previa) o importar un plan de cuentas CSV |
 | POST | `/api/importar/asientos` | Validar (vista previa) o importar asientos CSV |
 | POST | `/api/datos-demo` | Cargar las 15 operaciones |

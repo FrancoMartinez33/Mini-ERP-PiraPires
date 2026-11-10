@@ -26,7 +26,7 @@ import re
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from . import asistente
 from . import balance as modulo_balance
@@ -49,8 +49,10 @@ from .excepciones import (
 #: Carpeta con los archivos de la interfaz web.
 RAIZ_WEB = Path(__file__).resolve().parent.parent / "web"
 
-#: Tamaño máximo admitido para el cuerpo de una petición.
-TAMANO_MAXIMO_CUERPO = 2 * 1024 * 1024
+#: Tamaño máximo admitido para el cuerpo de una petición. El asistente manda
+#: adjuntos en base64 (hasta 8 MB en total, que con el 33 % de overhead y el
+#: JSON quedan por debajo de este tope).
+TAMANO_MAXIMO_CUERPO = 12 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +91,9 @@ RUTAS: list[tuple[str, re.Pattern, str]] = [
     # -- Balance de comprobación (sección 16) ----------------------------
     ("GET",    r"^/api/balance$",                                "balance_generar"),
     ("GET",    r"^/api/balance/cruce$",                          "balance_cruce"),
+
+    # -- Exportación a Excel (.xlsx) --------------------------------------
+    ("GET",    r"^/api/excel$",                                  "excel_descargar"),
 
     # -- Controles (sección 18) ------------------------------------------
     ("GET",    r"^/api/controles$",                              "controles_listar"),
@@ -493,10 +498,55 @@ class Manejador(BaseHTTPRequestHandler):
             )
         )
 
+    # ------------------------------------------------------------------
+    # Manejadores: exportación a Excel
+    # ------------------------------------------------------------------
+
+    def _manejar_excel_descargar(self, _: dict) -> None:
+        """
+        Descarga el trabajo resuelto como libro Excel (.xlsx).
+
+        Tres hojas en un archivo: Libro Diario, Libro Mayor y Balance de
+        Comprobación, generadas con los asientos CONFIRMADO del período
+        (admite ``desde``/``hasta`` como los demás reportes). El nombre
+        sugerido lo arma el módulo con la razón social y la fecha.
+        """
+        from . import excel
+
+        parametros = self._parametros()
+        nombre, contenido = excel.generar(
+            self.ruta_base,
+            desde=parametros.get("desde") or None,
+            hasta=parametros.get("hasta") or None,
+        )
+
+        # El nombre va entre comillas y con codificación RFC 5987 para que
+        # los navegadores conserven los caracteres del nombre de la empresa.
+        ascii_seguro = nombre.encode("ascii", "replace").decode("ascii")
+        self.send_response(200)
+        self.send_header(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.send_header("Content-Length", str(len(contenido)))
+        self.send_header(
+            "Content-Disposition",
+            f'attachment; filename="{ascii_seguro}"; '
+            f"filename*=UTF-8''{self._porcentaje(nombre)}",
+        )
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(contenido)
+
     def _moneda(self) -> str:
         with base_datos.conectar(self.ruta_base) as conexion:
             fila = conexion.execute("SELECT moneda FROM empresa WHERE id = 1").fetchone()
         return fila["moneda"] if fila else "G."
+
+    @staticmethod
+    def _porcentaje(nombre: str) -> str:
+        """Codifica el nombre de archivo para ``filename*=UTF-8''`` (RFC 5987)."""
+        return quote(nombre, safe="-._~")
 
     # ------------------------------------------------------------------
     # Manejadores: controles y utilidades
@@ -834,10 +884,16 @@ class Manejador(BaseHTTPRequestHandler):
 
     def _manejar_asistente_preguntar(self, _: dict) -> None:
         cuerpo = self._leer_cuerpo()
+        # Se pasan solo las cuentas de detalle activas: son las únicas que
+        # pueden recibir movimientos, así el CSV propuesto es importable.
+        cuentas = plan_de_cuentas.listar_cuentas(
+            self.ruta_base, incluir_inactivas=False, solo_detalle=True
+        )
         resultado = asistente.preguntar(
             cuerpo.get("pregunta", ""),
             cuerpo.get("historial"),
             cuerpo.get("archivos"),
+            cuentas=cuentas,
         )
         self._enviar_json(resultado)
 

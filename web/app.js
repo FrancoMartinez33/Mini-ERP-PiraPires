@@ -555,7 +555,7 @@ async function cargarPanel() {
 // Importación de datos propios desde CSV
 // ============================================================================
 
-/** El servidor acepta cuerpos de hasta 2 MB; dejamos margen para el JSON. */
+/** El importador limita el CSV a 1,5 MB; el cuerpo del servidor admite 12 MB. */
 const LIMITE_CSV_BYTES = 1.5 * 1024 * 1024;
 
 /** Tabla de errores de importación, con los valores siempre escapados. */
@@ -771,6 +771,16 @@ async function importarCuentasCSV(archivo) {
 async function importarAsientosCSV(archivo) {
   const texto = await leerArchivoCSV(archivo);
   if (texto === null) return;
+  await importarAsientosTexto(texto);
+}
+
+/**
+ * Valida, muestra la vista previa e importa un CSV de asientos que ya está en
+ * memoria. La usan tanto el botón de importación como Pira Pires cuando
+ * propone asientos en el chat.
+ */
+async function importarAsientosTexto(texto) {
+  if (!texto || !texto.trim()) return;
 
   let previa;
   try {
@@ -826,10 +836,21 @@ async function importarAsientosCSV(archivo) {
       'success',
       'Libro Diario actualizado',
     );
+    deshabilitarBotonesAsientos();
     await Promise.all([cargarDiario(), cargarPanel()]);
   } catch (error) {
     avisarError(error);
   }
+}
+
+/** Desactiva todos los botones de «cargar asientos» de la conversación. */
+function deshabilitarBotonesAsientos() {
+  document.querySelectorAll('[data-importar-asientos]').forEach((boton) => {
+    boton.disabled = true;
+    boton.textContent = 'Asientos cargados';
+    boton.classList.remove('btn-primary-outline');
+    boton.classList.add('btn-secondary-outline');
+  });
 }
 
 /** Conecta los botones de importación y los dos inputs de archivo compartidos. */
@@ -2292,6 +2313,24 @@ async function cargarAsistente() {
     evento.preventDefault();
     enviarPregunta();
   };
+
+  // Adjuntos de la pestaña: comparten la misma lista que la burbuja flotante.
+  const campoArchivo = $('#asistente-archivo');
+  const botonAdjuntar = $('#asistente-adjuntar');
+  if (botonAdjuntar && campoArchivo) {
+    botonAdjuntar.onclick = () => campoArchivo.click();
+    campoArchivo.onchange = async () => {
+      await adjuntarArchivosPira(campoArchivo.files);
+      campoArchivo.value = '';
+    };
+  }
+  const listaArchivos = $('#asistente-archivos');
+  if (listaArchivos && !listaArchivos.dataset.conectado) {
+    listaArchivos.dataset.conectado = '1';
+    UI.delegar(listaArchivos, '[data-quitar-archivo]', (elemento) => {
+      quitarArchivoPira(Number(elemento.dataset.quitarArchivo));
+    });
+  }
 }
 
 function pintarEstadoAsistente(cfg) {
@@ -2314,30 +2353,39 @@ async function enviarPregunta() {
   const campo = $('#asistente-pregunta');
   const boton = $('#asistente-enviar');
   const texto = (campo.value || '').trim();
-  if (!texto || asistenteEnviando) return;
+  // Igual que en la burbuja: se puede mandar solo un archivo, sin texto.
+  if ((!texto && !piraArchivos.length) || asistenteEnviando) return;
 
   asistenteEnviando = true;
   boton.classList.add('btn-pending');
   boton.setAttribute('aria-busy', 'true');
   boton.disabled = true;
 
-  agregarBurbuja('user', markdownBasico(texto));
+  const resumen = resumenAdjuntosPira();
+  const htmlUsuario = markdownBasico(texto || '(archivo adjunto)')
+    + (resumen ? `<div class="mt-1.5 text-xs opacity-80">${resumen}</div>` : '');
+  agregarBurbuja('user', htmlUsuario);
   campo.value = '';
+
+  // Los archivos viajan una sola vez, con esta pregunta.
+  const archivos = piraArchivos.slice();
+  limpiarArchivosPira();
   const esperando = agregarPensando();
 
   try {
     const r = await api('/api/asistente', {
       method: 'POST',
       // Se manda el historial sin el mensaje actual: el servidor lo agrega.
-      body: { pregunta: texto, historial: estado.conversacion },
+      body: { pregunta: texto, historial: estado.conversacion, archivos },
     });
 
-    estado.conversacion.push({ role: 'user', content: texto });
+    estado.conversacion.push({ role: 'user', content: texto || '(archivo adjunto)' });
     estado.conversacion.push({ role: 'assistant', content: r.respuesta });
 
     esperando.remove();
     // Se crea la burbuja vacía y el texto se escribe de a poco adentro.
     const respuesta = agregarBurbuja('assistant', '', r);
+    conectarAccionAsientos(respuesta.caja, r);
     animarEscritura(respuesta.cuerpo, markdownBasico(r.respuesta), {
       alEscribir: () => bajarAlFinal(respuesta.contenedor),
     });
@@ -2905,6 +2953,7 @@ async function enviarPreguntaPira() {
     // La burbuja se crea vacía y Pira la escribe de a poco: mientras redacta
     // mantiene la boca abierta, y la cierra recién cuando termina.
     const respuesta = agregarBurbuja('assistant', '', r, opciones);
+    conectarAccionAsientos(respuesta.caja, r);
     animarEscritura(respuesta.cuerpo, markdownBasico(r.respuesta), {
       alEscribir: () => bajarAlFinal(respuesta.contenedor),
       alTerminar: () => {
@@ -2944,6 +2993,9 @@ let piraArchivos = [];
 
 /** Tope de tamaño por archivo, para no colgar la conversación. */
 const MAXIMO_ARCHIVO = 8 * 1024 * 1024;   // 8 MB
+/** Tope del conjunto de adjuntos: el cuerpo JSON viaja en base64 y el
+ *  servidor acepta hasta 12 MB. */
+const MAXIMO_TOTAL_ARCHIVOS = 8 * 1024 * 1024;   // 8 MB
 
 /** Lee un archivo como base64, sin el encabezado `data:...;base64,`. */
 function leerArchivoBase64(archivo) {
@@ -2964,9 +3016,17 @@ async function adjuntarArchivosPira(lista) {
   const elegidos = Array.from(lista || []);
   if (!elegidos.length) return;
 
+  let total = piraArchivos.reduce((suma, archivo) => suma + (archivo.tamano || 0), 0);
   for (const archivo of elegidos) {
     if (archivo.size > MAXIMO_ARCHIVO) {
       avisar(`«${archivo.name}» es más grande de 8 MB y no se adjuntó.`, 'error');
+      continue;
+    }
+    if (total + archivo.size > MAXIMO_TOTAL_ARCHIVOS) {
+      avisar(
+        'Los adjuntos suman más de 8 MB. Quitá alguno o mandalos en otra pregunta.',
+        'error', 'Demasiados adjuntos',
+      );
       continue;
     }
     try {
@@ -2977,6 +3037,7 @@ async function adjuntarArchivosPira(lista) {
         tamano: archivo.size,
         contenido,
       });
+      total += archivo.size;
     } catch {
       avisar(`No se pudo leer «${archivo.name}».`, 'error');
     }
@@ -3001,17 +3062,21 @@ function esImagenPira(archivo) {
   return /^image\//.test(archivo.tipo) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(archivo.nombre);
 }
 
-/** Dibuja la tira de adjuntos sobre el pie del panel. */
+/** Dibuja la tira de adjuntos sobre el pie de los dos chats. */
 function pintarArchivosPira() {
-  const contenedor = $('#pira-archivos');
-  if (!contenedor) return;
+  const contenedores = ['#pira-archivos', '#asistente-archivos']
+    .map((selector) => $(selector))
+    .filter(Boolean);
+
   if (!piraArchivos.length) {
-    contenedor.classList.add('oculto');
-    contenedor.innerHTML = '';
+    contenedores.forEach((contenedor) => {
+      contenedor.classList.add('oculto');
+      contenedor.innerHTML = '';
+    });
     return;
   }
-  contenedor.classList.remove('oculto');
-  contenedor.innerHTML = piraArchivos.map((archivo, indice) => {
+
+  const html = piraArchivos.map((archivo, indice) => {
     const miniatura = esImagenPira(archivo)
       ? `<img class="archivo-chip-miniatura" src="data:${archivo.tipo};base64,${archivo.contenido}" alt="">`
       : UI.icono('archivo', { tamano: 16, clase: 'shrink-0 text-surface-400' });
@@ -3024,6 +3089,11 @@ function pintarArchivosPira() {
               aria-label="Quitar ${esc(archivo.nombre)}">&times;</button>
     </span>`;
   }).join('');
+
+  contenedores.forEach((contenedor) => {
+    contenedor.classList.remove('oculto');
+    contenedor.innerHTML = html;
+  });
 }
 
 /** Resumen corto de los adjuntos, para el mensaje del usuario. */
@@ -3039,8 +3109,34 @@ function replicarEnPestana(texto, respuesta) {
   if (!contenedor) return;
   agregarBurbuja('user', markdownBasico(texto));
   const burbuja = agregarBurbuja('assistant', '', respuesta);
+  conectarAccionAsientos(burbuja.caja, respuesta);
   animarEscritura(burbuja.cuerpo, markdownBasico(respuesta.respuesta), {
     alEscribir: () => bajarAlFinal(contenedor),
+  });
+}
+
+/**
+ * Conecta el botón «Cargar asientos» de una respuesta de Pira Pires.
+ *
+ * El CSV propuesto viaja en `meta.asientos_csv`. Al tocarlo se abre la misma
+ * vista previa del importador y, si el usuario confirma, los asientos se
+ * guardan como CONFIRMADOS. Nunca se escribe nada sin esa confirmación.
+ */
+function conectarAccionAsientos(caja, meta) {
+  if (!meta || !meta.asientos_csv) return;
+  const boton = caja.querySelector('[data-importar-asientos]');
+  if (!boton) return;
+  boton.addEventListener('click', async () => {
+    boton.disabled = true;
+    boton.classList.add('btn-pending');
+    try {
+      await importarAsientosTexto(meta.asientos_csv);
+    } finally {
+      boton.classList.remove('btn-pending');
+      // Si la importación se concretó, deshabilitarBotonesAsientos ya lo
+      // dejó apagado con el texto «Asientos cargados».
+      if (!boton.textContent.includes('cargados')) boton.disabled = false;
+    }
   });
 }
 
@@ -3086,9 +3182,21 @@ function agregarBurbuja(rol, html, meta = null, opciones = {}) {
     // El avatar es la foto de Pira Pires en las dos vistas: la misma cara en
     // la pestaña y en el panel flotante. (Antes la pestaña mostraba una «P»
     // sobre un círculo, que no coincidía con el pez de la burbuja.)
+    // Si la respuesta trae un CSV de asientos, se ofrece cargarlo. El botón
+    // queda fuera de `.burbuja-asistente` para que la animación de escritura
+    // no lo borre al reemplazar el HTML.
+    const accion = meta && meta.asientos_csv
+      ? `<div class="mt-2">
+           <button type="button" class="btn btn-sm btn-primary-outline"
+                   data-importar-asientos="1">
+             Cargar asientos en el Libro Diario
+           </button>
+         </div>`
+      : '';
     burbuja.innerHTML = `${avatarAsistente(flotante)}
        <div class="min-w-0 max-w-[85%]">
          <div class="burbuja burbuja-asistente">${html}</div>
+         ${accion}
          ${insignia ? `<div class="mt-1.5">${insignia}</div>` : ''}
        </div>`;
   }
@@ -3357,6 +3465,59 @@ function markdownBasico(texto) {
 // ============================================================================
 // Utilidades: datos de prueba
 // ============================================================================
+
+/**
+ * Descarga el trabajo contable como libro Excel (.xlsx).
+ *
+ * El servidor arma el archivo con tres hojas (Libro Diario, Libro Mayor y
+ * Balance de Comprobación) a partir de los asientos CONFIRMADO del período
+ * activo. Se hace con fetch + blob en vez de navegar a la URL para poder
+ * avisar con un toast si algo falla y conservar el nombre sugerido.
+ */
+async function descargarExcel() {
+  const boton = $('#btn-descargar-excel') || $('#btn-balance-excel');
+  if (boton) boton.classList.add('btn-pending');
+  try {
+    const parametros = new URLSearchParams();
+    if (estado.periodo?.desde) parametros.set('desde', estado.periodo.desde);
+    if (estado.periodo?.hasta) parametros.set('hasta', estado.periodo.hasta);
+    const consulta = parametros.toString();
+
+    const respuesta = await fetch(`/api/excel${consulta ? `?${consulta}` : ''}`);
+    if (!respuesta.ok) {
+      let datos = {};
+      try { datos = await respuesta.json(); } catch { /* sin cuerpo */ }
+      throw {
+        mensaje: datos.error || `El servidor devolvió ${respuesta.status}.`,
+        regla: datos.regla || null,
+        titulo: datos.titulo_regla || null,
+        detalles: datos.detalles || [],
+      };
+    }
+
+    const blob = await respuesta.blob();
+
+    // El nombre viene en Content-Disposition (RFC 5987). Si no se puede
+    // leer, el navegador usa uno genérico; no es grave.
+    const cabecera = respuesta.headers.get('Content-Disposition') || '';
+    const coincidencia = cabecera.match(/filename\*=UTF-8''([^;]+)/);
+    const nombre = coincidencia ? decodeURIComponent(coincidencia[1]) : 'erp-contable.xlsx';
+
+    const enlace = document.createElement('a');
+    enlace.href = URL.createObjectURL(blob);
+    enlace.download = nombre;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    URL.revokeObjectURL(enlace.href);
+
+    avisar(`Excel descargado: ${nombre}`, 'success', 'Tu trabajo en un solo archivo');
+  } catch (error) {
+    avisarError(error);
+  } finally {
+    if (boton) boton.classList.remove('btn-pending');
+  }
+}
 
 async function cargarDemo(recrear) {
   try {
@@ -4328,6 +4489,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btn-ver-balance').onclick = cargarBalance;
   $('#balance-vacias').onchange = cargarBalance;
   $('#balance-agrupado').onchange = cargarBalance;
+
+  $('#btn-descargar-excel').onclick = descargarExcel;
+  $('#btn-balance-excel').onclick = descargarExcel;
 
   $$('[data-accion="imprimir"]').forEach((boton) => {
     boton.onclick = () => window.print();

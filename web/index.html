@@ -1180,6 +1180,31 @@
         <div class="card mt-4">
           <div class="card-header">
             <div>
+              <h2 class="card-title">Descargar el trabajo resuelto</h2>
+              <p class="card-subtitle">Excel (.xlsx) · Libro Diario, Libro Mayor y Balance</p>
+            </div>
+          </div>
+          <div class="card-body">
+            <p class="text-sm text-surface-600">
+              Un solo archivo con tres hojas: los asientos contabilizados, el Libro Mayor
+              con los saldos acumulados y el Balance de Comprobación con sus subtotales.
+              Los importes van como números reales, listos para sumar y filtrar en Excel,
+              LibreOffice o Google Sheets.
+            </p>
+            <div class="card-footer mt-4">
+              <button id="btn-descargar-excel" class="btn btn-md btn-primary-outline">
+                Descargar Excel
+              </button>
+              <span class="text-xs text-surface-500">
+                Respeta el período activo de los filtros superiores.
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt-4">
+          <div class="card-header">
+            <div>
               <h2 class="card-title">Operaciones de prueba</h2>
               <p class="card-subtitle">Sección 19 · 15 operaciones mínimas</p>
             </div>
@@ -1381,6 +1406,9 @@
               </label>
               <button id="btn-ver-balance" class="btn btn-sm btn-primary-fill">
                 Generar balance
+              </button>
+              <button id="btn-balance-excel" class="btn btn-sm btn-primary-outline">
+                Descargar Excel
               </button>
               <button data-accion="imprimir"
                       class="btn btn-sm btn-ghost-outline">
@@ -1610,8 +1638,19 @@
             </div>
           </div>
 
+          <div id="asistente-archivos" class="asistente-pie-archivos oculto"></div>
           <div class="card-body">
             <form id="asistente-formulario" class="flex flex-wrap gap-2" novalidate>
+              <input id="asistente-archivo" type="file" class="hidden"
+                     accept="image/*,.pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.tsv,.json,.md,.xml">
+              <button id="asistente-adjuntar" type="button"
+                      class="btn btn-md btn-secondary-outline btn-icon shrink-0"
+                      title="Adjuntar imagen, PDF, Word, Excel, CSV o texto">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18"
+                     fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49L12.95 2.06a4 4 0 0 1 5.66 5.66l-9.19 9.19a2 2 0 0 1-2.83-2.83L15.07 5"/>
+                </svg>
+              </button>
               <label class="sr-only" for="asistente-pregunta">Pregunta para el asistente</label>
               <input id="asistente-pregunta" type="text" autocomplete="off"
                      class="input min-w-0 flex-1"
@@ -1620,6 +1659,10 @@
                 Preguntar
               </button>
             </form>
+            <p class="help-text">
+              Podés adjuntar el enunciado de un examen en PDF, Word o Excel. Pira Pires
+              lo resuelve y te ofrece cargar los asientos en el Libro Diario.
+            </p>
             <p class="help-text">
               El asistente puede equivocarse: verificá los montos y las fechas antes de
               aplicarlos. No reemplaza la firma de un contador público matriculado.
@@ -1700,10 +1743,11 @@
 
   <div id="pira-archivos" class="asistente-pie-archivos oculto"></div>
   <form id="pira-formulario" class="asistente-pie flex flex-wrap items-center gap-2" novalidate>
-    <input id="pira-archivo" type="file" class="hidden" accept="image/*,.pdf,.csv,.txt,.json,.xls,.xlsx">
+    <input id="pira-archivo" type="file" class="hidden"
+           accept="image/*,.pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.tsv,.json,.md,.xml">
     <button id="pira-adjuntar" type="button"
             class="btn btn-md btn-secondary-outline btn-icon shrink-0"
-            title="Adjuntar imagen, PDF, CSV, TXT o JSON">
+            title="Adjuntar imagen, PDF, Word, Excel, CSV o texto">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18"
            fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49L12.95 2.06a4 4 0 0 1 5.66 5.66l-9.19 9.19a2 2 0 0 1-2.83-2.83L15.07 5"/>
